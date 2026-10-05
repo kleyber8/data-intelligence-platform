@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
-# scripts/bootstrap.sh
-# Crea la estructura de directorios del proyecto.
 set -euo pipefail
 
 PROJECT_ROOT="${HOME}/Projects/data-intelligence-platform"
-mkdir -p "${PROJECT_ROOT}"
 cd "${PROJECT_ROOT}"
 
 DIRS=(
@@ -30,7 +27,6 @@ DIRS=(
   "intelligence/prompts" "intelligence/schemas" "intelligence/gemini"
   "postman"
   "docker/postgres/init" "docker/minio"
-  "scripts"
   "tests/unit" "tests/integration" "tests/data_quality"
   "dashboards" "monitoring"
   "docs/decisions" "docs/incidents" "docs/experiments" "docs/cost-optimization"
@@ -40,8 +36,6 @@ for d in "${DIRS[@]}"; do
   mkdir -p "${d}"
 done
 
-# Archivos .gitkeep para preservar carpetas vacías en Git
 find . -type d -empty -exec touch {}/.gitkeep \;
 
 echo "Estructura creada en ${PROJECT_ROOT}"
-tree -L 3 -a -I '.git|.venv|__pycache__|*.pyc' "${PROJECT_ROOT}" || true

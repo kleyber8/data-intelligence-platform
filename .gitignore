@@ -1,0 +1,107 @@
+# ============================================================
+# Data Intelligence Platform — .gitignore
+# ============================================================
+
+# ---------- Secretos y configuración local ----------
+.env
+.env.*
+!.env.example
+
+# ---------- Data Lake local (nunca versionar datos) ----------
+data/**/*
+!data/**/.gitkeep
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ---------- Entornos virtuales ----------
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# ---------- Testing / Coverage ----------
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# ---------- Tipado y linting ----------
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+
+# ---------- dbt ----------
+dbt/maritime/target/
+dbt/maritime/dbt_packages/
+dbt/maritime/logs/
+dbt/maritime/.user.yml
+**/dbt_packages/
+**/target/
+**/logs/
+
+# ---------- Airflow ----------
+airflow/logs/*
+!airflow/logs/.gitkeep
+airflow/airflow.db
+airflow/airflow.cfg
+airflow/webserver_config.py
+airflow/standalone_admin_password.txt
+
+# ---------- Docker ----------
+docker-compose.override.yml
+*.pid
+
+# ---------- ML / modelos ----------
+ml/models/*
+!ml/models/.gitkeep
+*.pkl
+*.joblib
+*.h5
+*.onnx
+
+# ---------- VS Code ----------
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# ---------- Sistema operativo ----------
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+.Trash-*
+
+# ---------- Logs ----------
+*.log
+logs/
