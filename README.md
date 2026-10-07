@@ -112,7 +112,7 @@ La fase de inicialización de la plataforma está **cerrada y verificada**. El e
 | **Calidad de código** | ✅ | Ruff · mypy · pytest · pre-commit configurados |
 | **Control de secretos** | ✅ | `.gitignore` validado · `.env.example` documentado |
 
-**Retos técnicos resueltos y documentados durante el bootstrap:**
+**Aprendizajes técnicos del bootstrap:**
 - Compatibilidad de Polars con CPUs sin AVX2 (`polars-lts-cpu`).
 - Desaparición de las imágenes oficiales de MinIO (migración a espejo comunitario `coollabsio/minio`).
 - Alineación del entrypoint de Airflow (`dip-airflow-init`).
