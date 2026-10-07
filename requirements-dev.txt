@@ -1,0 +1,20 @@
+# ============================================================
+# Dependencias de desarrollo, testing y calidad
+# ============================================================
+-r requirements.txt
+
+# ---------- Testing ----------
+pytest>=8.3
+pytest-cov>=6.0
+pytest-mock>=3.14
+responses>=0.25
+
+# ---------- Calidad de código ----------
+ruff>=0.6
+mypy>=1.11
+types-requests>=2.32
+pre-commit>=3.8
+
+# ---------- Utilidades dev ----------
+ipython>=8.28
+rich>=13.9

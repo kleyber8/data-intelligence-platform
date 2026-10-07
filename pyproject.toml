@@ -1,0 +1,46 @@
+[project]
+name = "data-intelligence-platform"
+version = "0.1.0"
+description = "Plataforma de ingeniería de datos: ciclo de vida completo desde ingesta hasta inteligencia. Caso inicial: tráfico marítimo (AIS)."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "kleyber8" }]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "data", "dbt/maritime/target", "dbt/maritime/dbt_packages"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"airflow/dags/*.py" = ["E402"]
+"dbt/**/*.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+exclude = ["airflow/", "dbt/", ".venv/"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests", "api/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-ra --strict-markers"
+markers = [
+    "unit: pruebas unitarias",
+    "integration: pruebas de integración",
+    "data_quality: pruebas de calidad de datos",
+    "slow: pruebas lentas",
+]
+
+[tool.coverage.run]
+source = ["src", "api", "ingestion"]
+omit = ["*/tests/*", "*/__init__.py", "*/.venv/*"]
