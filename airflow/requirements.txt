@@ -1,0 +1,16 @@
+# ============================================================
+# Dependencias adicionales para el contenedor de Airflow.
+#
+# VACÍO INTENCIONALMENTE.
+#
+# La imagen base apache/airflow:2.10.2-python3.11 ya incluye:
+#   - apache-airflow-providers-postgres 5.12.0
+#   - apache-airflow-providers-docker 3.13.0
+#   - apache-airflow-providers-http 4.13.0
+#
+# Cualquier provider que se agregue aquí puede arrastrar una
+# versión más nueva de apache-airflow, y pip la instalará,
+# rompiendo la imagen. Si en el futuro se necesita un provider
+# extra, fijarlo con == a la versión compatible con Airflow
+# 2.10.2, NUNCA con >=.
+# ============================================================

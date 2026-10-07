@@ -1,0 +1,17 @@
+.git
+.venv
+data
+airflow/logs
+airflow/__pycache__
+__pycache__
+*.pyc
+*.pyo
+.env
+.pytest_cache
+.ruff_cache
+.mypy_cache
+htmlcov
+.coverage
+dbt/maritime/target
+dbt/maritime/dbt_packages
+ml/models
