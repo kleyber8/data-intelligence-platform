@@ -1,6 +1,3 @@
-# ============================================================
-# Airflow personalizado para Data Intelligence Platform
-# ============================================================
 FROM apache/airflow:2.10.2-python3.11
 
 USER root
@@ -13,6 +10,6 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 USER airflow
 
-# Verificación de seguridad: falla el build si `airflow` no
-# responde. Así nunca dejamos una imagen rota en el registro.
-RUN airflow version
+COPY airflow/requirements.txt /tmp/airflow-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/airflow-requirements.txt \
+ && airflow version

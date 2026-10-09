@@ -1,16 +1,18 @@
-# ============================================================
-# Dependencias adicionales para el contenedor de Airflow.
+# Dependencias del contenedor de Airflow para los DAGs.
 #
-# VACÍO INTENCIONALMENTE.
+# NO instalar apache-airflow aqui (ya viene en la imagen base).
+# NO instalar dbt aqui (choca con Airflow y desinstala el core).
 #
-# La imagen base apache/airflow:2.10.2-python3.11 ya incluye:
-#   - apache-airflow-providers-postgres 5.12.0
-#   - apache-airflow-providers-docker 3.13.0
-#   - apache-airflow-providers-http 4.13.0
+# Estas dependencias son necesarias porque los DAGs importan
+# modulos del proyecto (ingestion, src.storage, src.validation).
 #
-# Cualquier provider que se agregue aquí puede arrastrar una
-# versión más nueva de apache-airflow, y pip la instalará,
-# rompiendo la imagen. Si en el futuro se necesita un provider
-# extra, fijarlo con == a la versión compatible con Airflow
-# 2.10.2, NUNCA con >=.
-# ============================================================
+# Deuda tecnica documentada: migrar a DAGs "thin" que invocan
+# un contenedor de runtime separado con Python 3.14 y todas
+# las dependencias del proyecto.
+
+polars-lts-cpu==1.10.0
+boto3==1.35.36
+httpx==0.27.2
+psycopg[binary]==3.2.3
+pydantic-settings==2.5.2
+python-dotenv==1.0.1
