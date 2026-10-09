@@ -19,6 +19,16 @@ x-airflow-common: &airflow-common
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "True"
     PYTHONPATH: /opt/airflow
     PROJECT_ROOT: /opt/airflow
+    DATA_LAKE_ROOT: /opt/airflow/data
+    DATA_LAKE_RAW_DIR: /opt/airflow/data/raw
+    DATA_LAKE_BRONZE_DIR: /opt/airflow/data/bronze
+    DATA_LAKE_SILVER_DIR: /opt/airflow/data/silver
+    DATA_LAKE_GOLD_DIR: /opt/airflow/data/gold
+    DATA_LAKE_QUARANTINE_DIR: /opt/airflow/data/quarantine
+    DATA_LAKE_METADATA_DIR: /opt/airflow/data/metadata
+    POSTGRES_HOST: project-postgres
+    POSTGRES_PORT: "5432"
+    S3_ENDPOINT_URL: http://minio:9000
   volumes:
     - ../airflow/dags:/opt/airflow/dags
     - ../airflow/plugins:/opt/airflow/plugins
