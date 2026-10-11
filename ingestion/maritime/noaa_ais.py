@@ -16,10 +16,12 @@ import argparse
 import hashlib
 import io
 import logging
+import math
 import random
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -33,14 +35,12 @@ from src.storage.s3_lake import upload_file
 logger = logging.getLogger("ingestion.noaa_ais")
 
 
-# ---------- Columnas esperadas tras normalización ----------
 EXPECTED_COLUMNS = [
     "mmsi", "latitude", "longitude", "speed_over_ground",
     "course_over_ground", "heading", "position_ts",
     "vessel_name", "vessel_type", "nav_status",
 ]
 
-# ---------- Mapeo desde columnas NOAA a nuestro esquema ----------
 NOAA_COLUMN_MAPPING = {
     "sog": "speed_over_ground",
     "cog": "course_over_ground",
@@ -50,12 +50,21 @@ NOAA_COLUMN_MAPPING = {
     "vesseltype": "vessel_type",
 }
 
+SCHEMA: dict[str, pl.DataType] = {
+    "mmsi": pl.Utf8,
+    "latitude": pl.Float64,
+    "longitude": pl.Float64,
+    "speed_over_ground": pl.Float64,
+    "course_over_ground": pl.Float64,
+    "heading": pl.Int32,
+    "position_ts": pl.Datetime("us", "UTC"),
+    "vessel_name": pl.Utf8,
+    "vessel_type": pl.Utf8,
+    "nav_status": pl.Utf8,
+}
 
-# ============================================================
-# Utilidades
-# ============================================================
+
 def compute_sha256(path: Path) -> str:
-    """Calcula el SHA-256 de un archivo en streaming."""
     sha = hashlib.sha256()
     with path.open("rb") as fh:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
@@ -64,53 +73,101 @@ def compute_sha256(path: Path) -> str:
 
 
 def _normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
-    """Renombra columnas NOAA a nuestro esquema y valida presencia."""
     lower_map = {c.lower(): c for c in df.columns}
     rename: dict[str, str] = {}
     for src, dst in NOAA_COLUMN_MAPPING.items():
         if src in lower_map:
             rename[lower_map[src]] = dst
     df = df.rename(rename)
-
     missing = [c for c in EXPECTED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"Faltan columnas obligatorias tras normalizar: {missing}")
-
     return df.select(EXPECTED_COLUMNS)
 
 
 # ============================================================
-# Generación sintética
+# Generación sintética realista
 # ============================================================
-def generate_synthetic_ais_data(num_rows: int = 200, num_invalid: int = 30) -> pl.DataFrame:
-    """Genera un DataFrame de posiciones AIS con casos válidos e inválidos."""
+def generate_synthetic_ais_data(
+    num_rows: int = 200,
+    num_invalid: int = 30,
+    num_vessels: int = 10,
+) -> pl.DataFrame:
+    """
+    Genera un DataFrame de posiciones AIS con trayectorias coherentes.
+
+    Cada embarcación avanza entre 5 y 20 nudos con intervalos de 10 a 30
+    minutos, produciendo desplazamientos físicamente plausibles que
+    respetan el límite de 60 nudos del Quality Gate 2.
+    """
     rng = random.Random(42)
     now = datetime.now(timezone.utc)
     num_valid = max(num_rows - num_invalid, 0)
+
+    vessel_types = ["Cargo", "Tanker", "Passenger", "Fishing"]
+    nav_statuses = ["Under way", "At anchor", "Moored"]
+
     rows: list[dict[str, Any]] = []
+    positions_per_vessel = max(num_valid // num_vessels, 1)
 
-    for i in range(num_valid):
-        rows.append({
-            "mmsi": f"{rng.randint(200000000, 799999999)}",
-            "latitude": rng.uniform(-60.0, 70.0),
-            "longitude": rng.uniform(-170.0, 170.0),
-            "speed_over_ground": round(rng.uniform(0.0, 25.0), 2),
-            "course_over_ground": round(rng.uniform(0.0, 359.9), 1),
-            "heading": rng.randint(0, 359),
-            "position_ts": now - timedelta(minutes=rng.randint(1, 1440)),
-            "vessel_name": f"VESSEL_{i:04d}",
-            "vessel_type": rng.choice(["Cargo", "Tanker", "Passenger", "Fishing"]),
-            "nav_status": rng.choice(["Under way", "At anchor", "Moored"]),
-        })
+    for v_idx in range(num_vessels):
+        mmsi = f"{rng.randint(200000000, 799999999)}"
+        vessel_type = rng.choice(vessel_types)
+        nav_status = "Under way"
 
-    patterns = ["mmsi_null", "mmsi_short", "lat_out", "lon_out", "sog_neg", "sog_high", "future"]
+        # Posición inicial y tiempo base
+        lat = rng.uniform(-60.0, 70.0)
+        lon = rng.uniform(-170.0, 170.0)
+        ts = now - timedelta(hours=rng.randint(12, 48))
+        bearing = rng.uniform(0, 2 * math.pi)
+
+        for _ in range(positions_per_vessel):
+            speed_knots = rng.uniform(5.0, 18.0)
+            dt_minutes = rng.uniform(10.0, 30.0)
+
+            # Distancia recorrida: speed (nudos) × dt (h) × 1.852 km/mn
+            distance_km = speed_knots * (dt_minutes / 60.0) * 1.852
+
+            # Deriva aleatoria pequeña del rumbo en cada paso
+            bearing += rng.uniform(-math.pi / 6, math.pi / 6)
+
+            # Desplazamiento en lat/lon
+            dlat = (distance_km / 111.0) * math.cos(bearing)
+            dlon = (distance_km / (111.0 * max(math.cos(math.radians(lat)), 0.1))) * math.sin(bearing)
+
+            lat += dlat
+            lon += dlon
+            ts += timedelta(minutes=dt_minutes)
+
+            # Clamp a rangos válidos
+            lat = max(min(lat, 89.0), -89.0)
+            lon = ((lon + 180) % 360) - 180
+
+            rows.append({
+                "mmsi": mmsi,
+                "latitude": lat,
+                "longitude": lon,
+                "speed_over_ground": round(speed_knots, 2),
+                "course_over_ground": round(math.degrees(bearing) % 360, 1),
+                "heading": int(math.degrees(bearing) % 360),
+                "position_ts": ts,
+                "vessel_name": f"VESSEL_{v_idx:03d}",
+                "vessel_type": vessel_type,
+                "nav_status": nav_status,
+            })
+
+    # Filas inválidas (para que QG1 las detecte)
+    patterns = [
+        "mmsi_null", "mmsi_short", "lat_out", "lon_out",
+        "sog_neg", "sog_high", "future",
+    ]
     for i in range(num_invalid):
         pattern = patterns[i % len(patterns)]
         row: dict[str, Any] = {
             "mmsi": f"{rng.randint(200000000, 799999999)}",
             "latitude": rng.uniform(-60.0, 70.0),
             "longitude": rng.uniform(-170.0, 170.0),
-            "speed_over_ground": round(rng.uniform(0.0, 25.0), 2),
+            "speed_over_ground": round(rng.uniform(5.0, 18.0), 2),
             "course_over_ground": round(rng.uniform(0.0, 359.9), 1),
             "heading": rng.randint(0, 359),
             "position_ts": now - timedelta(minutes=rng.randint(1, 1440)),
@@ -135,27 +192,13 @@ def generate_synthetic_ais_data(num_rows: int = 200, num_invalid: int = 30) -> p
         rows.append(row)
 
     rng.shuffle(rows)
-
-    schema = {
-        "mmsi": pl.Utf8,
-        "latitude": pl.Float64,
-        "longitude": pl.Float64,
-        "speed_over_ground": pl.Float64,
-        "course_over_ground": pl.Float64,
-        "heading": pl.Int32,
-        "position_ts": pl.Datetime("us", "UTC"),
-        "vessel_name": pl.Utf8,
-        "vessel_type": pl.Utf8,
-        "nav_status": pl.Utf8,
-    }
-    return pl.DataFrame(rows, schema=schema)
+    return pl.DataFrame(rows, schema=SCHEMA)
 
 
 # ============================================================
 # Descarga NOAA
 # ============================================================
 def download_noaa_ais(url: str) -> pl.DataFrame:
-    """Descarga un archivo CSV o Parquet desde una URL pública."""
     logger.info("Descargando NOAA AIS desde %s", url)
     with httpx.Client(timeout=120.0, follow_redirects=True) as client:
         resp = client.get(url)
@@ -187,7 +230,6 @@ def record_ingestion_metadata(
     status: str,
     error_message: str | None = None,
 ) -> None:
-    """Inserta (o actualiza) el registro de la corrida en metadata.ingestion_runs."""
     sql = text("""
         INSERT INTO metadata.ingestion_runs (
             ingestion_run_id, source_system, source_url, source_file,
@@ -221,10 +263,9 @@ def record_ingestion_metadata(
 
 
 # ============================================================
-# Función principal invocable desde Airflow o CLI
+# Pipeline principal
 # ============================================================
 def run_ingestion(source: str = "synthetic", source_url: str | None = None) -> dict[str, Any]:
-    """Ejecuta el pipeline de ingestión completo y devuelve los metadatos."""
     ingestion_run_id = str(uuid.uuid4())
     download_ts = datetime.now(timezone.utc)
 
@@ -259,7 +300,6 @@ def run_ingestion(source: str = "synthetic", source_url: str | None = None) -> d
         )
         raise
 
-    # Particionado Hive
     year = download_ts.strftime("%Y")
     month = download_ts.strftime("%m")
     day = download_ts.strftime("%d")
@@ -282,11 +322,9 @@ def run_ingestion(source: str = "synthetic", source_url: str | None = None) -> d
     else:
         data_period_start = data_period_end = None
 
-    # Subir a MinIO
     s3_key = f"raw/maritime/year={year}/month={month}/day={day}/{filename}"
     upload_file(local_path, settings.s3_bucket_raw, s3_key)
 
-    # Registrar metadatos
     record_ingestion_metadata(
         ingestion_run_id=ingestion_run_id,
         source_system=source_system,
@@ -302,8 +340,8 @@ def run_ingestion(source: str = "synthetic", source_url: str | None = None) -> d
     )
 
     logger.info(
-        "Ingestión OK → run_id=%s, filas=%d, tamaño=%d bytes, checksum=%s…",
-        ingestion_run_id, df.height, file_size, checksum[:12],
+        "Ingestión OK → run_id=%s, filas=%d, tamaño=%d bytes",
+        ingestion_run_id, df.height, file_size,
     )
 
     return {
@@ -318,13 +356,10 @@ def run_ingestion(source: str = "synthetic", source_url: str | None = None) -> d
     }
 
 
-# ============================================================
-# CLI
-# ============================================================
 def _cli() -> int:
     parser = argparse.ArgumentParser(description="Extractor de AIS (NOAA / sintético)")
     parser.add_argument("--source", choices=["synthetic", "noaa"], default="synthetic")
-    parser.add_argument("--url", type=str, default=None, help="URL directa si source=noaa")
+    parser.add_argument("--url", type=str, default=None)
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
 

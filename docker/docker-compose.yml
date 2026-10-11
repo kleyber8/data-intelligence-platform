@@ -38,6 +38,7 @@ x-airflow-common: &airflow-common
     - ../ingestion:/opt/airflow/ingestion
     - ../dbt:/opt/airflow/dbt
     - ../data:/opt/airflow/data
+    - ${HOME}/.dbt:/home/airflow/.dbt:ro
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     airflow-postgres:

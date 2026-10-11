@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: "Capa Bronze — fidelidad respecto a la fuente."
+    schema: bronze
+    tables:
+      - name: bronze_ais_position
+        description: "Posiciones AIS cargadas desde Landing a Bronze."
+        loaded_at_field: created_at
+        freshness:
+          warn_after: { count: 6, period: hour }
+          error_after: { count: 24, period: hour }
+        columns:
+          - name: ingestion_row_id
+            tests: [not_null]
+          - name: mmsi
+            tests: [not_null]
+          - name: latitude
+            tests: [not_null]
+          - name: longitude
+            tests: [not_null]
+          - name: position_ts
+            tests: [not_null]
+          - name: quality_status
+            tests: [not_null]

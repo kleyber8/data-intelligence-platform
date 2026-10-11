@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: int_vessel_position_deltas
+    description: "Deltas temporales y velocidad calculada entre posiciones consecutivas."
+    columns:
+      - name: ingestion_row_id
+        tests: [not_null, unique]
+      - name: mmsi
+        tests: [not_null]
+      - name: position_ts
+        tests: [not_null]
+
+  - name: int_vessel_tracks
+    description: "Segmentación de posiciones en tracks (corte a 2h entre pings)."
+    columns:
+      - name: track_id
+        tests: [not_null]
+      - name: ingestion_row_id
+        tests: [not_null, unique]
+      - name: mmsi
+        tests: [not_null]

@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: stg_ais_position
+    description: "Posiciones AIS validadas (Silver — staging)."
+    columns:
+      - name: ingestion_row_id
+        tests: [not_null, unique]
+      - name: mmsi
+        tests: [not_null]
+      - name: latitude
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: -90
+              max_value: 90
+      - name: longitude
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: -180
+              max_value: 180
+      - name: speed_over_ground
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+      - name: position_ts
+        tests: [not_null]
