@@ -10,7 +10,7 @@
 [![Estrategia](https://img.shields.io/badge/estrategia-Local--First%20%2B%20Cloud--Ready-0f2942?style=flat-square)](#-arquitectura-de-referencia)
 [![Entorno](https://img.shields.io/badge/entorno-Fedora%20Linux-1f7a8c?style=flat-square)](#-guía-de-inicio-rápido)
 [![Stack](https://img.shields.io/badge/stack-Python%20%C2%B7%20Docker%20%C2%B7%20Airflow%20%C2%B7%20dbt%20%C2%B7%20PostgreSQL-0f2942?style=flat-square)](#-stack-tecnológico)
-[![Estado](https://img.shields.io/badge/estado-Fase%202%20%C2%B7%20Ingesti%C3%B3n%2C%20Bronze%20y%20QG1%20completados-2f855a?style=flat-square)](#-estado-de-avance)
+[![Estado](https://img.shields.io/badge/estado-Fase%203%20%C2%B7%20Capa%20Silver%20y%20dbt%20completados-2f855a?style=flat-square)](#-estado-de-avance)
 [![Licencia](https://img.shields.io/badge/licencia-MIT-5b6b7a?style=flat-square)](#-licencia)
 
 </div>
@@ -116,37 +116,53 @@ La fase de inicialización de la plataforma está **cerrada y verificada**. El e
 
 Primer pipeline end-to-end funcionando: extracción desde fuente sintética (o NOAA real), preservación inmutable en Data Lake y MinIO, estructuración en Bronze con auditoría completa, y validación estructural con aislamiento de registros inválidos en cuarentena.
 
-| Componente | Estado | Evidencia verificada |
-|---|---|---|
-| **Extractor de AIS** (`ingestion/maritime/noaa_ais.py`) | ✅ | Dataset sintético o NOAA · checksum SHA-256 · Parquet con Zstd · particionado Hive |
-| **Preservación inmutable** | ✅ | `data/raw/maritime/year=/month=/day=/` + copia en MinIO `maritime-raw` |
-| **Escritor de Bronze** (`src/storage/bronze_writer.py`) | ✅ | 200 filas insertadas con auditoría completa |
-| **Quality Gate 1** (`src/validation/quality_gate_1.py`) | ✅ | 6 reglas aplicadas · 170 validadas · 30 a cuarentena |
-| **Tabla `metadata.ingestion_runs`** | ✅ | Corrida registrada con estado `bronze_loaded` |
-| **Tabla `quarantine.quarantine_records`** | ✅ | Payload JSONB completo por cada rechazo |
-| **DAG `dag_01_discovery_ingestion`** | ✅ | 5 tareas en TaskFlow API · retries=2 · sin errores de importación |
-| **Helpers compartidos** (`src/storage/db.py`, `s3_lake.py`) | ✅ | Conexiones cacheadas · compatibles con SQLAlchemy 1.4 y 2.0 |
-
-**Métricas reales de la corrida de verificación:**
+**Métricas de la corrida de verificación:**
 
 | Métrica | Valor |
 |---|---|
 | Registros procesados | 200 |
 | Registros validados | 170 (85%) |
 | Registros en cuarentena | 30 (15%) |
-| Tamaño del Parquet | 11,150 bytes |
-| Checksum SHA-256 | `e0f60332cc830367560cc0210698dba86ee35173a186f9db6327ad78ff392bb6` |
-| Distribución de violaciones | `valid_speed` (8) · `valid_mmsi_format` (5) · `valid_mmsi_present;valid_mmsi_format` (5) · `valid_latitude` (4) · `valid_longitude` (4) · `valid_timestamp` (4) |
+| DAG `dag_01_discovery_ingestion` | 5 tareas en TaskFlow API |
 
-**Aprendizajes técnicos del bootstrap y de la Fase 2:**
+### ✅ Fase 3 — Capa Silver, Transformaciones dbt y Quality Gate 2 completado
+
+Pipeline de transformación analítica completo: tres modelos dbt que normalizan, enriquecen y reconstruyen trayectorias; 17 tests declarativos ejecutados en verde; Quality Gate 2 validando integridad referencial, continuidad temporal y continuidad espacial; orquestación completa con DAG 02 y dbt en venv aislado dentro del contenedor.
+
+| Componente | Estado | Evidencia verificada |
+|---|---|---|
+| **Modelo `stg_ais_position`** | ✅ | Normalización, casteo y filtrado por `quality_status='validated'` |
+| **Modelo `int_vessel_position_deltas`** | ✅ | Haversine en SQL, deltas temporales, velocidad calculada vs reportada |
+| **Modelo `int_vessel_tracks`** | ✅ | Segmentación con corte a 2h, `track_id` único por tramo continuo |
+| **Macro `generate_schema_name`** | ✅ | Override del prefijado automático de dbt |
+| **Tests dbt** | ✅ | `PASS=17` `ERROR=0` `WARN=0` |
+| **Quality Gate 2** | ✅ | 3 reglas · 0 violaciones |
+| **DAG `dag_02_silver_transformation`** | ✅ | 5 tareas · TaskFlow API + BashOperator |
+| **dbt aislado en Airflow** | ✅ | Venv `/opt/dbt-venv` dentro del contenedor |
+
+**Métricas reales de la corrida de verificación:**
+
+| Métrica | Valor |
+|---|---|
+| Modelos Silver creados | 3 vistas en esquema `silver` |
+| Tests dbt pasados | 17 / 17 |
+| Violaciones detectadas por QG2 | 0 (referential + temporal + spatial) |
+| Velocidad calculada vs reportada | Delta < 0.05 nudos |
+| `is_speed_anomaly` en tracks | 0 falsos positivos |
+| Distancias entre posiciones | 3.6 – 14.7 km (plausibles) |
+
+**Aprendizajes técnicos de las tres fases:**
 - Compatibilidad de Polars con CPUs sin AVX2 (`polars-lts-cpu`).
-- Desaparición de las imágenes oficiales de MinIO (migración a espejo comunitario `coollabsio/minio`).
-- Alineación del entrypoint de Airflow (`dip-airflow-init`).
-- Conflictos de dependencias pip ↔ Airflow 3.x (fijación de providers).
+- Migración a espejo comunitario `coollabsio/minio` tras remoción de imágenes oficiales.
+- Alineación del entrypoint de Airflow y fijación de providers para evitar Airflow 3.x.
 - Resolución DNS del daemon Docker en Fedora (`/etc/docker/daemon.json`).
-- UUID vs VARCHAR: los UUIDs generados por Polars se almacenan como texto en tablas llenadas vía pandas.
-- Compatibilidad SQLAlchemy 1.4 / 2.0: usar `from sqlalchemy.engine import Engine`.
-- Reconstrucción de las tres imágenes de Airflow (webserver, scheduler, init) al cambiar el Dockerfile.
+- UUID vs VARCHAR en tablas llenadas vía pandas.
+- Compatibilidad SQLAlchemy 1.4 / 2.0 (`from sqlalchemy.engine import Engine`).
+- Reconstrucción de las tres imágenes de Airflow al cambiar el Dockerfile.
+- Macro `generate_schema_name` para evitar prefijado `silver_silver` en dbt.
+- dbt en venv aislado dentro del contenedor de Airflow (`/opt/dbt-venv`).
+- Conflictos de puerto entre servicios del sistema y contenedores (PostgreSQL 5432).
+- Generación sintética con trayectorias físicamente coherentes (Haversine).
 
 ---
 
@@ -188,7 +204,7 @@ data-intelligence-platform/
 ├── src/                              # Código fuente modular
 │   ├── config.py                     # Configuración tipada con Pydantic
 │   ├── logging_config.py             # Logging estructurado
-│   ├── storage/                      # Abstracción de almacenamiento (local, S3)
+│   ├── storage/                      # db.py, s3_lake.py, bronze_writer.py
 │   ├── validation/                   # Quality Gates 1, 2 y 3
 │   ├── geospatial/                   # Geofencing y H3
 │   ├── tracking/                     # Reconstrucción de trayectorias
@@ -196,17 +212,25 @@ data-intelligence-platform/
 │   └── ml/                           # Entrenamiento y evaluación
 │
 ├── airflow/                          # Orquestador
-│   ├── dags/                         # 7 DAGs (Discovery, Bronze, Silver, Gold, ML, Intelligence, Monitoring)
+│   ├── dags/                         # dag_01_*, dag_02_*, etc.
 │   ├── plugins/                      # Operadores personalizados
-│   ├── Dockerfile                    # Imagen personalizada
+│   ├── Dockerfile                    # Imagen personalizada con dbt en venv aislado
 │   └── requirements.txt              # Dependencias del contenedor
 │
 ├── dbt/maritime/                     # Transformaciones analíticas
 │   ├── dbt_project.yml
 │   ├── packages.yml
+│   ├── macros/
+│   │   └── generate_schema_name.sql  # Override del prefijado automático
 │   ├── models/
 │   │   ├── staging/                  # Capa Silver: normalización
+│   │   │   ├── _sources.yml
+│   │   │   ├── stg_ais_position.sql
+│   │   │   └── stg_ais_position.yml
 │   │   ├── intermediate/             # Capa Silver: enriquecimiento
+│   │   │   ├── int_vessel_position_deltas.sql
+│   │   │   ├── int_vessel_tracks.sql
+│   │   │   └── schema.yml
 │   │   └── marts/                    # Capa Gold: Data Marts
 │   │       ├── core/
 │   │       ├── port_operations/
@@ -216,7 +240,6 @@ data-intelligence-platform/
 │   │       └── anomaly/
 │   ├── snapshots/
 │   ├── tests/
-│   ├── macros/
 │   └── seeds/
 │
 ├── api/                              # API REST con FastAPI
@@ -306,7 +329,7 @@ cd docker
 docker compose --env-file ../.env up -d --build
 ```
 
-La primera ejecución descarga las imágenes base (~1.5 GB) y construye la imagen de Airflow. Tarda entre 5 y 15 minutos según la conexión. Las ejecuciones posteriores son casi instantáneas.
+La primera ejecución descarga las imágenes base (~1.5 GB) y construye la imagen de Airflow con dbt en venv aislado. Tarda entre 5 y 15 minutos según la conexión. Las ejecuciones posteriores son casi instantáneas.
 
 ### Paso 4 — Verificar que todo está operativo
 
@@ -316,6 +339,9 @@ docker compose --env-file ../.env ps
 curl -s http://localhost:8080/health | jq .
 curl -s http://localhost:9000/minio/health/live -o /dev/null -w "MinIO: HTTP %{http_code}\n"
 docker exec dip-project-postgres psql -U maritime_user -d maritime -c "\dn"
+
+# Verificar que dbt está disponible dentro del contenedor
+docker exec dip-airflow-webserver dbt --version
 ```
 
 Salida esperada:
@@ -323,6 +349,7 @@ Salida esperada:
 - Airflow responde `{"metadatabase": {"status": "healthy"}, "scheduler": {"status": "healthy"}}`.
 - MinIO responde `HTTP 200`.
 - PostgreSQL lista los esquemas `bronze`, `silver`, `gold`, `metadata`, `quarantine`, `public`.
+- dbt responde con su versión (`Core: 1.8.x · Plugins: postgres 1.8.x`).
 
 ### Paso 5 — Verificar la conexión de dbt
 
@@ -336,65 +363,90 @@ dbt debug
 
 Salida esperada: **`All checks passed!`**
 
-### Paso 6 — Ejecutar el pipeline de Fase 2
+### Paso 6 — Ejecutar el pipeline completo (Fases 2 y 3)
 
 **Opción A — Disparar desde la CLI (ideal para depuración):**
 
 ```bash
 cd ~/Projects/data-intelligence-platform
 source .venv/bin/activate
+set -a; source .env; set +a
 
-# Ejecutar la ingestión sintética (o --source noaa --url <URL> para datos reales)
+# --- FASE 2: Ingestión + Bronze + QG1 ---
 python -m ingestion.maritime.noaa_ais --source synthetic
 
-# Capturar el ingestion_run_id de la última corrida
 export RUN_ID=$(docker exec dip-project-postgres psql -U maritime_user -d maritime -t -A -c "SELECT ingestion_run_id FROM metadata.ingestion_runs ORDER BY created_at DESC LIMIT 1")
 echo "RUN_ID: $RUN_ID"
 
-# Cargar a Bronze
-python -c "from src.storage.bronze_writer import write_bronze_from_landing, count_bronze_rows; rid='$RUN_ID'; print('Insertadas:', write_bronze_from_landing(rid)); print('Verificación COUNT:', count_bronze_rows(rid))"
-
-# Aplicar el Quality Gate 1
+python -c "from src.storage.bronze_writer import write_bronze_from_landing, count_bronze_rows; rid='$RUN_ID'; print('Bronze:', write_bronze_from_landing(rid)); print('Count:', count_bronze_rows(rid))"
 python -c "from src.validation.quality_gate_1 import run_quality_gate_1; print(run_quality_gate_1('$RUN_ID'))"
+
+# --- FASE 3: Silver con dbt + QG2 ---
+cd dbt/maritime
+export DBT_PROFILES_DIR=~/.dbt
+
+dbt deps
+dbt run --select tag:silver --no-version-check
+dbt test --select tag:silver --no-version-check
+
+cd ~/Projects/data-intelligence-platform
+python -c "from src.validation.quality_gate_2 import run_quality_gate_2; import json; print(json.dumps(run_quality_gate_2(), indent=2, default=str))"
 ```
 
 **Opción B — Disparar desde Airflow (valida la orquestación completa):**
 
 ```bash
+# DAG 01 (Bronze)
 docker exec dip-airflow-webserver airflow dags unpause dag_01_discovery_ingestion
 docker exec dip-airflow-webserver airflow dags trigger dag_01_discovery_ingestion
 
-# Ver el estado del run
-docker exec dip-airflow-webserver airflow dags list-runs -d dag_01_discovery_ingestion 2>/dev/null | head -5
+# DAG 02 (Silver) — después de que DAG 01 termine
+docker exec dip-airflow-webserver airflow dags unpause dag_02_silver_transformation
+docker exec dip-airflow-webserver airflow dags trigger dag_02_silver_transformation
+
+# Estado de los runs
+docker exec dip-airflow-webserver airflow dags list-runs -d dag_01_discovery_ingestion 2>/dev/null | head -3
+docker exec dip-airflow-webserver airflow dags list-runs -d dag_02_silver_transformation 2>/dev/null | head -3
 ```
 
-Interfaz web en `http://localhost:8080` (usuario `admin` / contraseña `admin`) → **DAGs → dag_01_discovery_ingestion → Graph**.
+Interfaz web en `http://localhost:8080` (usuario `admin` / contraseña `admin`) → **DAGs → Graph**.
 
 ### Paso 7 — Verificar los resultados en PostgreSQL
 
 ```bash
 export RUN_ID=$(docker exec dip-project-postgres psql -U maritime_user -d maritime -t -A -c "SELECT ingestion_run_id FROM metadata.ingestion_runs ORDER BY created_at DESC LIMIT 1")
 
-# Estado de la corrida
-docker exec dip-project-postgres psql -U maritime_user -d maritime -c "
-    SELECT ingestion_run_id, source_system, rows_ingested, status
-    FROM metadata.ingestion_runs WHERE ingestion_run_id = '$RUN_ID';"
-
-# Distribución de calidad en Bronze
+# --- Fase 2 ---
 docker exec dip-project-postgres psql -U maritime_user -d maritime -c "
     SELECT quality_status, COUNT(*) FROM bronze.bronze_ais_position
     WHERE ingestion_run_id = '$RUN_ID' GROUP BY quality_status;"
 
-# Distribución de violaciones en Cuarentena
 docker exec dip-project-postgres psql -U maritime_user -d maritime -c "
     SELECT quality_rule, COUNT(*) FROM quarantine.quarantine_records
     WHERE ingestion_run_id = '$RUN_ID' GROUP BY quality_rule ORDER BY 2 DESC;"
-```
 
-Salida esperada:
-- `metadata.ingestion_runs`: 1 fila con `status='bronze_loaded'` y `rows_ingested=200`.
-- `bronze.bronze_ais_position`: 170 `validated` + 30 `quarantined`.
-- `quarantine.quarantine_records`: 30 filas distribuidas en 5 reglas distintas.
+# --- Fase 3 ---
+docker exec dip-project-postgres psql -U maritime_user -d maritime -c "
+    SELECT table_schema, table_name, table_type
+    FROM information_schema.tables
+    WHERE table_schema = 'silver'
+    ORDER BY table_name;"
+
+for t in stg_ais_position int_vessel_position_deltas int_vessel_tracks; do
+    docker exec dip-project-postgres psql -U maritime_user -d maritime -t -c "SELECT '$t', COUNT(*) FROM silver.$t;"
+done
+
+# Muestra de tracks reconstruidos
+docker exec dip-project-postgres psql -U maritime_user -d maritime -c "
+    SELECT track_id, mmsi, position_ts,
+           ROUND(distance_km::numeric, 3) AS distance_km,
+           ROUND(calculated_speed_knots::numeric, 2) AS speed_knots,
+           is_speed_anomaly
+    FROM silver.int_vessel_tracks
+    WHERE distance_km IS NOT NULL AND distance_km > 0
+    ORDER BY track_id, position_ts
+    LIMIT 10;"
+```
 
 ### Interfaces disponibles tras el arranque
 
@@ -415,11 +467,16 @@ La plataforma implementa una **triple barrera de calidad** que intercepta proble
 
 Aplica 6 reglas: `valid_mmsi_present`, `valid_mmsi_format`, `valid_latitude`, `valid_longitude`, `valid_speed`, `valid_timestamp`. Los registros que pasan quedan con `quality_status='validated'`; los que fallan pasan a `quality_status='quarantined'` y se replican en `quarantine.quarantine_records` con el payload JSONB completo y la lista de reglas violadas.
 
-### Quality Gate 2 — Integridad referencial (post-Silver) · 🚧 próximo
+### Quality Gate 2 — Integridad analítica (post-Silver) · ✅ implementado
 
-Validará integridad referencial entre tablas, consistencia temporal, continuidad espacial, calidad de viajes, calidad de port calls y freshness.
+Aplica 3 reglas sobre las vistas Silver:
+- **`referential_consistency`** — cuenta los `ingestion_row_id` huérfanos entre `int_vessel_tracks` y `stg_ais_position`.
+- **`temporal_continuity`** — cuenta duplicados de `(mmsi, position_ts)` y deltas temporales negativos.
+- **`spatial_continuity`** — cuenta velocidades calculadas mayores a 60 nudos.
 
-### Quality Gate 3 — Calidad analítica (post-Gold) · 🚧 fase posterior
+Devuelve un diccionario con `all_passed`, `total_violations` y el detalle por regla. En la corrida de verificación: **0 violaciones**.
+
+### Quality Gate 3 — Calidad analítica (post-Gold) · 🚧 próxima fase
 
 Validará completitud, freshness, consistencia, duplicación, valores extremos, calidad de métricas y **ausencia de data leakage** en features de ML.
 
@@ -429,7 +486,7 @@ Validará completitud, freshness, consistencia, duplicación, valores extremos, 
 - **mypy** — verificación estática de tipos, con `disallow_untyped_defs = true`.
 - **pytest** — framework de testing con marcadores por tipo (`unit`, `integration`, `data_quality`, `slow`).
 - **pre-commit** — hooks automáticos que ejecutan todas las verificaciones antes de cada commit.
-- **dbt tests** — tests declarativos sobre los modelos (`not_null`, `unique`, `relationships`, `accepted_values`).
+- **dbt tests** — tests declarativos sobre los modelos (17 tests en Silver).
 
 Con pre-commit y los Quality Gates activos, es imposible que un dato inválido llegue a Gold, y es imposible commitear código que no pase Ruff, mypy y los tests.
 
@@ -445,11 +502,10 @@ Con pre-commit y los Quality Gates activos, es imposible que un dato inválido l
 - [x] Proyecto dbt configurado con perfiles dinámicos por variables de entorno.
 - [x] Calidad de código: Ruff, mypy, pytest, pre-commit.
 - [x] Control de secretos y `.gitignore` validado.
-- [x] Resolución de retos técnicos de bajo nivel (DNS, entrypoints, dependencias).
 
-### ✅ Completado — Fase 2 (Pipeline Real: Ingestión, Bronze y QG1)
+### ✅ Completado — Fase 2 (Ingestión, Bronze y QG1)
 
-- [x] Extractor de AIS con Polars: sintético o NOAA real · checksum SHA-256 · Parquet con Zstd.
+- [x] Extractor de AIS con Polars: sintético o NOAA real · checksum SHA-256 · Parquet Zstd.
 - [x] Preservación en Data Lake local particionado tipo Hive (`year=/month=/day=/`).
 - [x] Subida automática a MinIO S3 con cliente boto3.
 - [x] Registro de metadatos en `metadata.ingestion_runs`.
@@ -459,19 +515,32 @@ Con pre-commit y los Quality Gates activos, es imposible que un dato inválido l
 - [x] DAG de Airflow `dag_01_discovery_ingestion` con 5 tareas en TaskFlow API.
 - [x] Verificación end-to-end: 200 procesados · 170 validados · 30 en cuarentena.
 
-### 🚧 Próximos hitos — Fase 3 (Capa Silver)
+### ✅ Completado — Fase 3 (Capa Silver, dbt y QG2)
 
-- [ ] Modelo dbt `stg_ais_position` — normalización de Bronze validado.
-- [ ] Modelo dbt `int_vessel_position_deltas` — diferencias entre posiciones consecutivas.
-- [ ] Modelo dbt `int_vessel_tracks` — reconstrucción de trayectorias con manejo de gaps.
-- [ ] Modelo dbt `int_vessel_port_calls` — detección de llegadas y salidas con geofencing.
-- [ ] Quality Gate 2 — validación referencial y de continuidad espacial.
-- [ ] DAG `dag_02_silver` que orqueste `dbt run --select tag:silver`.
-- [ ] Primeros tests unitarios y de integración del pipeline.
+- [x] Macro `generate_schema_name` para evitar prefijado `silver_silver`.
+- [x] Modelo `stg_ais_position` con normalización y filtrado por validados.
+- [x] Modelo `int_vessel_position_deltas` con Haversine en SQL y detección de anomalías.
+- [x] Modelo `int_vessel_tracks` con segmentación por gaps de 2 horas.
+- [x] 17 tests dbt declarativos en verde (`PASS=17 ERROR=0 WARN=0`).
+- [x] Quality Gate 2 con tres reglas analíticas · 0 violaciones.
+- [x] DAG `dag_02_silver_transformation` con 5 tareas (TaskFlow + BashOperator).
+- [x] dbt en venv aislado dentro del contenedor de Airflow (`/opt/dbt-venv`).
+- [x] Datos sintéticos con trayectorias físicamente coherentes.
+
+### 🚧 Próximos hitos — Fase 4 (Capa Gold)
+
+- [ ] Modelo `fact_vessel_voyage` — viajes agregados a partir de tracks.
+- [ ] Modelo `dim_port` — dimensión de puertos con geofencing.
+- [ ] Modelo `agg_port_operations` — métricas operativas por puerto y periodo.
+- [ ] Modelo `agg_port_congestion` — índice de congestión portuaria.
+- [ ] Modelo `vessel_intelligence` — perfil operativo por embarcación.
+- [ ] Modelo `route_intelligence` — análisis de rutas origen-destino.
+- [ ] Modelo `anomaly_mart` — consolidación de anomalías detectadas.
+- [ ] Quality Gate 3 — validación analítica sobre Gold.
+- [ ] DAG `dag_03_gold_marts` que orqueste `dbt run --select tag:gold`.
 
 ### 🔮 Capacidad de extensión — Fases posteriores
 
-- [ ] **Fase 4 (Gold y Data Marts)** — marts de operaciones, congestión, vessel intelligence, route intelligence y anomalías.
 - [ ] **Fase 5 (API REST)** — endpoints en FastAPI: `/health`, `/ports`, `/vessels`, `/routes`, `/anomalies`.
 - [ ] **Fase 6 (Machine Learning)** — primer modelo de predicción de ETA o forecasting de congestión.
 - [ ] **Fase 7 (Intelligence)** — generación de briefings operacionales con Gemini.
@@ -516,7 +585,7 @@ Este proyecto se distribuye bajo la **Licencia MIT**. Puedes usar, modificar, di
 
 <div align="center">
 
-**Data Intelligence Platform** · Fase 2 · Ingestión, Bronze y QG1 completados
+**Data Intelligence Platform** · Fase 3 · Capa Silver y dbt completados
 
 *Construido con rigor, documentado con honestidad, abierto a quien quiera aprender.*
 
