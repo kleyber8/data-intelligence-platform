@@ -1,0 +1,12 @@
+version: 2
+
+models:
+  - name: route_intelligence
+    description: "Análisis de rutas origen-destino."
+    columns:
+      - name: origin_port_id
+        tests: [not_null]
+      - name: destination_port_id
+        tests: [not_null]
+      - name: frequency
+        tests: [not_null]

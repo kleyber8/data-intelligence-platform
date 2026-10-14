@@ -1,0 +1,12 @@
+version: 2
+
+models:
+  - name: vessel_intelligence
+    description: "Perfil operativo consolidado por embarcación."
+    columns:
+      - name: mmsi
+        tests: [not_null, unique]
+      - name: total_voyages
+        tests: [not_null]
+      - name: total_distance_km
+        tests: [not_null]

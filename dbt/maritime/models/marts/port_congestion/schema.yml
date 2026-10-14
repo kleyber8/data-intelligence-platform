@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: agg_port_congestion
+    description: "Índice de congestión portuaria calculado por hora."
+    columns:
+      - name: port_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_port')
+              field: port_id
+      - name: hour
+        tests: [not_null]
+      - name: congestion_score
+        tests: [not_null]
+      - name: congestion_level
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['low', 'moderate', 'high', 'critical']

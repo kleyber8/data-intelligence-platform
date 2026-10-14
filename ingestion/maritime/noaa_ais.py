@@ -1,14 +1,9 @@
 """
 Extractor de posiciones AIS.
 
-Descarga (o genera sintéticamente) un dataset de posiciones AIS,
-calcula su checksum SHA-256, lo persiste en el Data Lake local
-particionado estilo Hive y lo sube a MinIO (bucket maritime-raw).
-Registra los metadatos de la corrida en PostgreSQL.
-
-Uso desde terminal:
-    python -m ingestion.maritime.noaa_ais --source synthetic
-    python -m ingestion.maritime.noaa_ais --source noaa --url <URL>
+Genera datos sintéticos realistas: cada embarcación navega cerca de un
+puerto real, con trayectoria coherente y velocidad plausible. También
+soporta descarga real desde NOAA.
 """
 from __future__ import annotations
 
@@ -33,7 +28,6 @@ from src.storage.db import get_engine
 from src.storage.s3_lake import upload_file
 
 logger = logging.getLogger("ingestion.noaa_ais")
-
 
 EXPECTED_COLUMNS = [
     "mmsi", "latitude", "longitude", "speed_over_ground",
@@ -63,6 +57,20 @@ SCHEMA: dict[str, pl.DataType] = {
     "nav_status": pl.Utf8,
 }
 
+# Puertos de referencia — misma lista que dim_port.sql
+PORTS = [
+    ("USLAX", 33.7405, -118.2775),
+    ("USNYC", 40.6892,  -74.0445),
+    ("NLRTM", 51.9500,    4.1333),
+    ("SGSIN",  1.2644,  103.8409),
+    ("CNSHA", 31.2304,  121.4737),
+    ("AEJEA", 25.0122,   55.0622),
+    ("DEHAM", 53.5459,    9.9683),
+    ("BEANR", 51.2603,    4.4025),
+    ("KRPUS", 35.1028,  129.0403),
+    ("JPTYO", 35.6528,  139.8394),
+]
+
 
 def compute_sha256(path: Path) -> str:
     sha = hashlib.sha256()
@@ -85,20 +93,15 @@ def _normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
     return df.select(EXPECTED_COLUMNS)
 
 
-# ============================================================
-# Generación sintética realista
-# ============================================================
 def generate_synthetic_ais_data(
     num_rows: int = 200,
     num_invalid: int = 30,
-    num_vessels: int = 10,
 ) -> pl.DataFrame:
     """
-    Genera un DataFrame de posiciones AIS con trayectorias coherentes.
+    Genera datos AIS sintéticos realistas.
 
-    Cada embarcación avanza entre 5 y 20 nudos con intervalos de 10 a 30
-    minutos, produciendo desplazamientos físicamente plausibles que
-    respetan el límite de 60 nudos del Quality Gate 2.
+    Cada embarcación navega cerca de un puerto real, mantiene un rumbo
+    coherente y produce trayectorias físicamente plausibles.
     """
     rng = random.Random(42)
     now = datetime.now(timezone.utc)
@@ -108,30 +111,30 @@ def generate_synthetic_ais_data(
     nav_statuses = ["Under way", "At anchor", "Moored"]
 
     rows: list[dict[str, Any]] = []
-    positions_per_vessel = max(num_valid // num_vessels, 1)
+    vessels = 10
+    positions_per_vessel = max(num_valid // vessels, 1)
 
-    for v_idx in range(num_vessels):
+    for v_idx in range(vessels):
         mmsi = f"{rng.randint(200000000, 799999999)}"
         vessel_type = rng.choice(vessel_types)
         nav_status = "Under way"
 
-        # Posición inicial y tiempo base
-        lat = rng.uniform(-60.0, 70.0)
-        lon = rng.uniform(-170.0, 170.0)
+        # Cada barco se asigna a uno de 5 puertos (2 barcos por puerto)
+        port_idx = v_idx % 5
+        _, base_lat, base_lon = PORTS[port_idx]
+        lat = base_lat + rng.uniform(-0.15, 0.15)
+        lon = base_lon + rng.uniform(-0.15, 0.15)
         ts = now - timedelta(hours=rng.randint(12, 48))
         bearing = rng.uniform(0, 2 * math.pi)
 
         for _ in range(positions_per_vessel):
-            speed_knots = rng.uniform(5.0, 18.0)
-            dt_minutes = rng.uniform(10.0, 30.0)
-
-            # Distancia recorrida: speed (nudos) × dt (h) × 1.852 km/mn
+            speed_knots = rng.uniform(8.0, 16.0)
+            dt_minutes = rng.uniform(15.0, 40.0)
             distance_km = speed_knots * (dt_minutes / 60.0) * 1.852
 
-            # Deriva aleatoria pequeña del rumbo en cada paso
-            bearing += rng.uniform(-math.pi / 6, math.pi / 6)
+            # Deriva suave del rumbo
+            bearing += rng.uniform(-math.pi / 12, math.pi / 12)
 
-            # Desplazamiento en lat/lon
             dlat = (distance_km / 111.0) * math.cos(bearing)
             dlon = (distance_km / (111.0 * max(math.cos(math.radians(lat)), 0.1))) * math.sin(bearing)
 
@@ -139,7 +142,6 @@ def generate_synthetic_ais_data(
             lon += dlon
             ts += timedelta(minutes=dt_minutes)
 
-            # Clamp a rangos válidos
             lat = max(min(lat, 89.0), -89.0)
             lon = ((lon + 180) % 360) - 180
 
@@ -156,7 +158,7 @@ def generate_synthetic_ais_data(
                 "nav_status": nav_status,
             })
 
-    # Filas inválidas (para que QG1 las detecte)
+    # Filas inválidas
     patterns = [
         "mmsi_null", "mmsi_short", "lat_out", "lon_out",
         "sog_neg", "sog_high", "future",
@@ -195,9 +197,6 @@ def generate_synthetic_ais_data(
     return pl.DataFrame(rows, schema=SCHEMA)
 
 
-# ============================================================
-# Descarga NOAA
-# ============================================================
 def download_noaa_ais(url: str) -> pl.DataFrame:
     logger.info("Descargando NOAA AIS desde %s", url)
     with httpx.Client(timeout=120.0, follow_redirects=True) as client:
@@ -212,9 +211,6 @@ def download_noaa_ais(url: str) -> pl.DataFrame:
     return _normalize_columns(df)
 
 
-# ============================================================
-# Registro de metadatos
-# ============================================================
 def record_ingestion_metadata(
     *,
     ingestion_run_id: str,
@@ -262,9 +258,6 @@ def record_ingestion_metadata(
         })
 
 
-# ============================================================
-# Pipeline principal
-# ============================================================
 def run_ingestion(source: str = "synthetic", source_url: str | None = None) -> dict[str, Any]:
     ingestion_run_id = str(uuid.uuid4())
     download_ts = datetime.now(timezone.utc)

@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: anomaly_mart
+    description: "Consolidación de anomalías de velocidad detectadas en Silver."
+    columns:
+      - name: anomaly_id
+        tests: [not_null, unique]
+      - name: vessel_id
+        tests: [not_null]
+      - name: anomaly_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['speed_anomaly']
+      - name: severity
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['low', 'medium', 'high']

@@ -1,0 +1,28 @@
+version: 2
+
+models:
+  - name: dim_port
+    description: "Dimensión de puertos principales con bounding box para geofencing."
+    columns:
+      - name: port_id
+        tests: [not_null, unique]
+      - name: port_name
+        tests: [not_null]
+      - name: country_code
+        tests: [not_null]
+
+  - name: agg_port_operations
+    description: "Métricas operativas por puerto y día."
+    columns:
+      - name: port_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_port')
+              field: port_id
+      - name: day
+        tests: [not_null]
+      - name: arrivals
+        tests: [not_null]
+      - name: departures
+        tests: [not_null]

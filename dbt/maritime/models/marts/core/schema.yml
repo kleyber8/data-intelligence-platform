@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: fact_vessel_voyage
+    description: "Viajes agregados a partir de tracks continuos de Silver."
+    columns:
+      - name: track_id
+        tests: [not_null, unique]
+      - name: mmsi
+        tests: [not_null]
+      - name: start_ts
+        tests: [not_null]
+      - name: end_ts
+        tests: [not_null]
+      - name: num_positions
+        tests: [not_null]
