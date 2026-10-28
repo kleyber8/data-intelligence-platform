@@ -166,7 +166,38 @@ services:
       timeout: 10s
       retries: 5
 
+  # ---------- pgAdmin (Interfaz Gráfica PostgreSQL) ----------
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: dip-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - project-postgres
+
+  # ---------- Portainer (Interfaz Gráfica Docker) ----------
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: dip-portainer
+    restart: unless-stopped
+    command: -H unix:///var/run/docker.sock
+    ports:
+      - "9443:9443"
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
 volumes:
   airflow_pgdata:
   project_pgdata:
   minio_data:
+  pgadmin_data:
+  portainer_data:

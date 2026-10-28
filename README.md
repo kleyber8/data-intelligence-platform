@@ -793,12 +793,15 @@ done
 
 ### Interfaces disponibles tras el arranque
 
-| Servicio | URL | Credenciales |
-|---|---|---|
-| **Airflow Webserver** | http://localhost:8080 | `admin` / `admin` |
-| **MinIO Console** | http://localhost:9001 | `minioadmin` / `minioadmin` |
-| **PostgreSQL proyecto** | `localhost:5432` | `maritime_user` / `change_me_dev_only` |
-| **PostgreSQL Airflow** | `localhost:5433` | `airflow` / `change_me_dev_only` |
+| Servicio | URL | Credenciales | Propósito |
+|---|---|---|---|
+| **Airflow Webserver** | http://localhost:8080 | `admin` / `admin` | Orquestador de pipelines y logs de ejecución. |
+| **MinIO Console** | http://localhost:9001 | `minioadmin` / `minioadmin` | Navegador del Data Lake (buckets y archivos Parquet). |
+| **pgAdmin** | http://localhost:5050 | `admin@example.com` / `admin` | Interfaz gráfica para explorar PostgreSQL. |
+| **Portainer** | https://localhost:9443 | *Crear al primer ingreso* | Monitor de contenedores Docker, CPU y RAM. |
+| **dbt docs** | http://localhost:8081 | — | Linaje visual y catálogo de modelos dbt. |
+| **PostgreSQL (proyecto)** | `localhost:5432` | `maritime_user` / `change_me_dev_only` | Conexión directa (opcional si usas pgAdmin). |
+| **PostgreSQL (Airflow)** | `localhost:5433` | `airflow` / `change_me_dev_only` | Conexión directa (opcional). |
 
 ---
 
