@@ -4,34 +4,38 @@
 
 ### Infraestructura abierta para el ciclo de vida completo del dato: desde la ingesta cruda hasta la API de consumo.
 
-**De los datos a la decisión, sin cajas negras.**
+**De los datos a la decisión, sin límites en lo que podemos aprender.**
 
-[![Arquitectura](https://img.shields.io/badge/arquitectura-Medallion-1f7a8c?style=for-the-badge&logo=databricks)](#)
-[![Estado](https://img.shields.io/badge/estado-Fase%206%20%C2%B7%20API%20REST%20validada-2f855a?style=for-the-badge&logo=fastapi)](#)
-[![Seguridad](https://img.shields.io/badge/seguridad-JWT%20%26%20RBAC-c53030?style=for-the-badge&logo=jsonwebtokens)](#)
-[![Stack](https://img.shields.io/badge/stack-Python%20%7C%20Docker%20%7C%20dbt%20%7C%20Airflow-0f2942?style=for-the-badge&logo=apacheairflow)](#)
-[![Licencia](https://img.shields.io/badge/licencia-MIT-5b6b7a?style=for-the-badge)](#)
+[![Arquitectura](./documentation/02_architecture.md)](./documentation/02_architecture.md)
+[![Estado](./documentation/03_status_phases.md)](./documentation/03_status_phases.md)
+[![Seguridad](./documentation/04_security_roadmap.md)](./documentation/04_security_roadmap.md)
+[![Stack](./documentation/02_architecture.md)](./documentation/02_architecture.md)
+[![Licencia](./LICENSE)](./LICENSE)
 
 </div>
 
 ---
 
-## 🛠️ El "Por Qué": Ingeniería Demostrable vs. Cajas Negras
+## 🛠️ El "Por Qué": Pasión por Entender la Maquinaria
 
-Este proyecto nace desde la Escuela de Estadística y Ciencias Actuariales (UCV) con un objetivo técnico claro: **demostrar cómo funciona una plataforma de datos real de extremo a extremo**, huyendo de las soluciones propietarias que ocultan su mecánica. 
+Vivimos en una era donde las plataformas de datos modernas suelen venderse como soluciones cerradas. El usuario final inserta datos y recibe métricas, pero la mecánica interna —cómo se valida la calidad, cómo se aíslan las cargas o cómo se previenen errores— a menudo queda oculta.
 
-No es solo un ejercicio académico; es una implementación de nivel productivo que expone el ciclo de vida del dato: `Datos → Información → Análisis → Conocimiento → Inteligencia → Decisión`. Utilizando el tráfico marítimo (AIS) como banco de pruebas, la arquitectura está desacoplada del dominio y diseñada bajo estrictos **principios de diseño e ingeniería**:
+Este proyecto nace desde la **Escuela de Estadística y Ciencias Actuariales (UCV)** con una convicción muy clara: **la mejor forma de aprender ingeniería de datos es construyéndola desde cero y compartiendo el proceso.** 
+
+No es solo un ejercicio académico; es una implementación de nivel productivo que expone el ciclo de vida del dato en su totalidad: `Datos → Información → Análisis → Conocimiento → Inteligencia → Decisión`. Utilizando el tráfico marítimo (AIS) como banco de pruebas, hemos diseñado una arquitectura desacoplada del dominio, pensada para que otros estudiantes e ingenieros puedan estudiarla, reproducirla y expandirla.
+
+Buscamos demostrar que la transparencia técnica y el uso de herramientas open-source (como Airflow, dbt y FastAPI) pueden igualar el rigor de las plataformas empresariales más complejas. Nuestros pilares de diseño son:
 
 *   **Inmutabilidad y Contratos de Datos:** Los datos en Landing y Bronze nunca se alteran. Cada transición entre capas está regida por *Quality Gates* y validaciones declarativas (dbt).
 *   **Trazabilidad Absoluta:** Cada registro cuenta con un `ingestion_run_id` y `ingestion_row_id`, permitiendo auditar el linaje desde el archivo original hasta la API final.
 *   **Aislamiento de Recursos:** Orquestación local *Local-First* (Docker, MinIO) lista para migrar a Cloud (*Cloud-Where-Useful*).
-*   **Assume Breach & Least Privilege:** Postura técnica donde la seguridad se asume vulnerada en el diseño. Cuatro roles dedicados en base de datos (RBAC) garantizan que la API solo lea la capa Gold.
+*   **Seguridad por Diseño (Assume Breach):** Cuatro roles dedicados en base de datos (RBAC) garantizan que la API solo tenga acceso a la capa de consumo (Gold), minimizando el radio de acción ante cualquier fallo.
 
 ---
 
 ## ⚡ Estado de Avance: 6 Fases Cerradas y Validadas
 
-El pipeline no es teórico. Cuenta con un entorno local *end-to-end* validado mediante pruebas automatizadas y Quality Gates.
+El pipeline no es teoría. Cuenta con un entorno local *end-to-end* validado mediante pruebas automatizadas y Quality Gates.
 
 | Fase | Hito Arquitectónico | Validación Técnica |
 | :--- | :--- | :--- |
@@ -46,7 +50,7 @@ El pipeline no es teórico. Cuenta con un entorno local *end-to-end* validado me
 
 ## 📚 Portal de Documentación Modular
 
-Para mantener una base de código mantenible y una lectura sin sobrecarga cognitiva, la arquitectura y decisiones están divididas en manuales técnicos dentro de la carpeta `documentation/`:
+Para mantener el código mantenible y una lectura sin sobrecarga cognitiva, la arquitectura y las decisiones están divididas en manuales técnicos dentro de la carpeta `documentation/`:
 
 | Icono | Documento | Propósito |
 | :---: | :--- | :--- |
@@ -60,18 +64,18 @@ Para mantener una base de código mantenible y una lectura sin sobrecarga cognit
 
 ---
 
-## 🖥️ Panel de Control: Interfaces Gráficas
+## 🖥️ Panel de Control: Interfaces Gráficas Locales
 
-Una vez desplegado el stack local (`docker compose up -d`), el control y la observabilidad del sistema se materializan en interfaces visuales:
+Una vez desplegado el stack local (`docker compose up -d`), el control y la observabilidad del sistema se materializan en las siguientes interfaces visuales:
 
 | Interfaz | URL Local | Credenciales | Propósito Operativo |
 | :--- | :--- | :--- | :--- |
-| 🌪️ **Apache Airflow** | `http://localhost:8080` | `admin` / `admin` | Orquestación de DAGs y monitoreo de ejecuciones. |
-| ⚡ **FastAPI Swagger** | `http://localhost:8001/docs` | *(JWT Auth)* | Explorador interactivo de la API REST de la capa Gold. |
-| 🗄️ **MinIO Console** | `http://localhost:9001` | `minioadmin` / `minioadmin` | Navegador del Data Lake (Buckets S3 y archivos Parquet). |
-| 🐘 **pgAdmin** | `http://localhost:5050` | `admin@example.com` / `admin` | Administración e inspección gráfica de PostgreSQL. |
-| 📊 **dbt Docs** | `./scripts/serve_dbt_docs.sh` | *(Automático)* | Catálogo visual y grafo de linaje de las transformaciones. |
-| 🐳 **Portainer** | `https://localhost:9443` | *(Configurar)* | Observabilidad de contenedores Docker (CPU/RAM). |
+| 🌪️ **Apache Airflow** | [http://localhost:8080](http://localhost:8080) | `admin` / `admin` | Orquestación de DAGs y monitoreo de ejecuciones. |
+| ⚡ **FastAPI Swagger** | [http://localhost:8001/docs](http://localhost:8001/docs) | *(JWT Auth)* | Explorador interactivo de la API REST de la capa Gold. |
+| 🗄️ **MinIO Console** | [http://localhost:9001](http://localhost:9001) | `minioadmin` / `minioadmin` | Navegador del Data Lake (Buckets S3 y archivos Parquet). |
+| 🐘 **pgAdmin** | [http://localhost:5050](http://localhost:5050) | `admin@example.com` / `admin` | Administración e inspección gráfica de PostgreSQL. |
+| 🐳 **Portainer** | [https://localhost:9443](https://localhost:9443) | *(Configurar)* | Observabilidad de contenedores Docker (CPU/RAM). |
+| 📊 **dbt Docs** | Ejecutar `./scripts/serve_dbt_docs.sh` | *(Automático)* | Catálogo visual y grafo de linaje de las transformaciones. |
 
 ---
 
@@ -79,7 +83,7 @@ Una vez desplegado el stack local (`docker compose up -d`), el control y la obse
 
 Este repositorio es un espacio abierto para la ingeniería y la experimentación. El verdadero valor educativo no reside únicamente en el código funcional, sino en la documentación explícita de las decisiones arquitectónicas (bajo el esquema: *problema → alternativas → decisión → justificación → consecuencias*). 
 
-Se invita a estudiantes, docentes e ingenieros a clonar el proyecto, auditar los pipelines y proponer mejoras. Consulta la **[Guía de Inicio Rápido](./documentation/06_quickstart_guide.md)** para configurar el entorno.
+Invitamos a estudiantes, docentes e ingenieros a clonar el proyecto, auditar los pipelines, romper cosas, arreglarlas y proponer mejoras. Consulta la **[Guía de Inicio Rápido](./documentation/06_quickstart_guide.md)** para configurar el entorno.
 
 ## 📄 Licencia
 
@@ -88,7 +92,7 @@ Distribuido bajo la **Licencia MIT**. Consulta [`LICENSE`](./LICENSE) para más 
 ---
 
 <div align="center">
-<i>Construido con rigor de ingeniería, documentado con honestidad técnica, abierto a quien quiera aprender.</i>
+<i>Construido con rigor de ingeniería, documentado con honestidad técnica y abierto a quien quiera aprender.</i>
 <br>
 <b>Data Intelligence Platform · Fase 6 · 2026</b>
 </div>

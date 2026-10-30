@@ -97,16 +97,16 @@ uvicorn api.app.main:app --host 0.0.0.0 --port 8001 --reload
 
 ## 🖥️ Panel de Control Local (Interfaces Visuales)
 
-Con la plataforma en ejecución, puedes auditar y visualizar el estado del ecosistema en las siguientes interfaces:
+Con la plataforma en ejecución, puedes auditar y visualizar el estado del ecosistema en las siguientes interfaces (haz clic para abrirlas):
 
 | Interfaz | URL Local | Credenciales | Propósito |
 | :--- | :--- | :--- | :--- |
-| 🌪️ **Apache Airflow** | `http://localhost:8080` | `admin` / `admin` | Orquestación de DAGs y logs de ejecución. |
-| ⚡ **FastAPI Swagger** | `http://localhost:8001/docs` | *(JWT Auth)* | Explorador interactivo de los endpoints de la API. |
-| 🗄️ **MinIO Console** | `http://localhost:9001` | `minioadmin` / `minioadmin` | Navegador del Data Lake (archivos Parquet). |
-| 🐘 **pgAdmin** | `http://localhost:5050` | `admin@example.com` / `admin` | Administración gráfica de PostgreSQL. |
-| 🐳 **Portainer** | `https://localhost:9443` | *(Crear en 1er inicio)* | Monitor de contenedores (CPU/RAM). |
-| 📊 **dbt Docs** | `./scripts/serve_dbt_docs.sh` | *(Automático)* | Catálogo visual y grafo de linaje. |
+| 🌪️ **Apache Airflow** | [http://localhost:8080](http://localhost:8080) | `admin` / `admin` | Orquestación de DAGs y logs de ejecución. |
+| ⚡ **FastAPI Swagger** | [http://localhost:8001/docs](http://localhost:8001/docs) | *(JWT Auth)* | Explorador interactivo de los endpoints de la API. |
+| 🗄️ **MinIO Console** | [http://localhost:9001](http://localhost:9001) | `minioadmin` / `minioadmin` | Navegador del Data Lake (archivos Parquet). |
+| 🐘 **pgAdmin** | [http://localhost:5050](http://localhost:5050) | `admin@example.com` / `admin` | Administración gráfica de PostgreSQL. |
+| 🐳 **Portainer** | [https://localhost:9443](https://localhost:9443) | *(Crear en 1er inicio)* | Monitor de contenedores (CPU/RAM). |
+| 📊 **dbt Docs** | Ejecutar `./scripts/serve_dbt_docs.sh` | *(Automático)* | Catálogo visual y grafo de linaje. |
 
 ---
 *Documento mantenido bajo el esquema: problema → alternativas → decisión → justificación → consecuencias.*

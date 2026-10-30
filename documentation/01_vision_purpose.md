@@ -1,9 +1,9 @@
 # 🎯 Visión, Propósito y Principios de Diseño
 
-## 1. El Problema: La Opacidad de las "Cajas Negras"
-En la industria moderna, las plataformas de datos suelen venderse como soluciones monolíticas propietarias. El usuario final inserta datos y obtiene métricas, pero desconoce la mecánica interna: cómo se validan los datos, cómo se manejan los errores, cómo se aíslan las cargas o cómo se mitiga el sesgo. 
+## 1. El Desafío: Comprender el Ciclo de Vida del Dato Completo
+En el ecosistema tecnológico actual, es común encontrar tutoriales o herramientas que resuelven partes aisladas del problema (un script de ingesta, un dashboard, un modelo). Sin embargo, unir todas las piezas para construir un sistema real de nivel productivo suele ser un desafío abrumador para quienes están empezando.
 
-Esta plataforma nace desde la **Escuela de Estadística y Ciencias Actuariales (UCV)** con un objetivo de ingeniería claro: **construir un ecosistema de datos de nivel productivo donde cada componente sea auditable, reproducible y transparente.**
+Esta plataforma nace desde la **Escuela de Estadística y Ciencias Actuariales (UCV)** con un objetivo de ingeniería claro: **construir un ecosistema de datos de extremo a extremo donde cada componente sea transparente, auditable y reproducible.** Buscamos demostrar que, con las herramientas correctas y los principios de diseño adecuados, es posible dominar la arquitectura completa que va desde el archivo crudo hasta la API.
 
 ## 2. El Propósito: De los Datos a la Decisión
 El sistema está diseñado para conectar de forma lógica y automatizada la secuencia de valor del dato:
