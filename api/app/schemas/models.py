@@ -75,3 +75,13 @@ class Anomaly(BaseModel):
     score: float
     baseline: float
     observed_value: float
+
+# ---------- Predictions ----------
+class ETAPredictionRequest(BaseModel):
+    total_distance_km: float
+    avg_speed_knots: float
+    vessel_type: str
+
+class ETAPredictionResponse(BaseModel):
+    predicted_eta_hours: float
+    model_version: str

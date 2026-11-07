@@ -73,3 +73,13 @@ Este documento detalla la implementación y validación técnica de las 6 fases 
 
 ---
 *Documento mantenido bajo el esquema: problema → alternativas → decisión → justificación → consecuencias.*
+
+## 🚧 Fase 7: Machine Learning Avanzado (En Progreso)
+**Objetivo:** Modelos predictivos y MLOps.
+*   **Stack:** XGBoost, Prophet, Scikit-Learn, Joblib, MinIO.
+*   **Hitos logrados:**
+    *   Split temporal estricto (70/15/15) para evitar *data leakage*.
+    *   Entrenamiento de modelo **XGBoost** para predicción de ETA (Regresión) con Early Stopping y Regularización.
+    *   Implementación de **Causalidad de Granger** para validar relaciones temporales.
+    *   Registro de artefactos (`.joblib`) en MinIO S3 (`bucket: ml-models`).
+    *   Endpoint `POST /predict/eta` para inferencia en FastAPI.
