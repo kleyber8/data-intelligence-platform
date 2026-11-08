@@ -33,7 +33,7 @@ Buscamos demostrar que la transparencia técnica y el uso de herramientas open-s
 
 ---
 
-## ⚡ Estado de Avance: 6 Fases Cerradas y Validadas
+## ⚡ Estado de Avance: 7 Fases Cerradas y Validadas
 
 El pipeline no es teoría. Cuenta con un entorno local *end-to-end* validado mediante pruebas automatizadas y Quality Gates.
 
@@ -45,6 +45,66 @@ El pipeline no es teoría. Cuenta con un entorno local *end-to-end* validado med
 | **4** | 🥇 **Capa Gold & RBAC** | **7 Data Marts** analíticos. **QG3:** Validación *cross-layer*. **RBAC:** 4 usuarios con *Least Privilege*. |
 | **5** | 🧠 **Rigor Matemático** | Filtro de Kalman 4D (suavizado GPS), resampling temporal y *feature prep* sin *data leakage*. |
 | **6** | 🔌 **API REST (FastAPI)** | Fachada asíncrona con **JWT**, *Rate Limiting*, validación Pydantic y conexión restringida a Gold. |
+| **7** | 🤖 **Machine Learning** | **XGBoost (ETA)**, **Causalidad de Granger**, ingesta de **3,669 puertos NGA (ArcGIS)** y endpoint `/predict/eta`. |
+
+---
+
+## 📂 Estructura del Repositorio
+
+```text
+data-intelligence-platform/
+├── README.md                 # Portal principal y guía de navegación
+├── documentation/            # Portal modular de conocimiento técnico
+│   ├── index.md              # Índice general del portal
+│   ├── 01_vision_purpose.md  # Visión, propósito y principios
+│   ├── 02_architecture.md    # Arquitectura de referencia y stack
+│   ├── 03_status_phases.md   # Radiografía técnica de las fases
+│   ├── 04_security_roadmap.md# Seguridad, RBAC y Assume Breach
+│   ├── 05_quality_governance.md# Calidad, linaje y Quality Gates
+│   ├── 06_quickstart_guide.md# Guía de inicio rápido (Fedora/Docker)
+│   └── 07_roadmap.md         # Hoja de ruta (Fases 8 a 12)
+├── data/                     # Data Lake Local (Estructura Hive / S3)
+│   ├── raw/                  # Capa Landing inmutable
+│   ├── bronze/               # Fidelidad estructural
+│   ├── silver/               # Normalización y trazas
+│   ├── gold/                 # Data Marts dimensionales
+│   ├── quarantine/           # Aislamiento de errores (JSONB)
+│   └── metadata/             # Metadatos de ejecución
+├── ingestion/                # Scripts de extracción de fuentes externas
+│   ├── maritime/             # NOAA AIS (Sintético / Real)
+│   └── ports/                # NGA World Port Index (Fase 7)
+├── src/                      # Código fuente modular (Core lógico)
+│   ├── config.py             # Configuración y Settings (Pydantic)
+│   ├── storage/              # Clientes de base de datos y S3 (Boto3)
+│   ├── validation/           # Quality Gates 1, 2 y 3
+│   ├── transformations/      # Módulos matemáticos (Kalman, Resampling)
+│   └── ml/                   # Módulos de Machine Learning (Fase 7)
+│       ├── preprocessing.py  # Split temporal y PCA
+│       ├── causal_analysis.py# Test de Causalidad de Granger
+│       ├── models.py         # XGBoost e Isolation Forest
+│       ├── registry.py       # Model Registry (MinIO S3)
+│       └── train.py          # Pipeline de entrenamiento
+├── airflow/                  # Orquestador y flujos de trabajo
+│   ├── dags/                 # Definición de DAGs de Airflow
+│   └── Dockerfile            # Imagen personalizada con dbt aislado
+├── dbt/maritime/             # Transformaciones analíticas (ELT)
+│   ├── models/               # Modelos Staging, Intermediate y Marts
+│   ├── macros/               # Macros SQL personalizadas (Haversine)
+│   └── dbt_project.yml       # Configuración de dbt Core 1.12
+├── api/                      # Capa de consumo y exposición
+│   └── app/
+│       ├── main.py           # Aplicación principal FastAPI
+│       ├── routers/          # Endpoints por dominio (ports, vessels, predict)
+│       ├── schemas/          # Modelos de validación de esquemas (Pydantic)
+│       └── core/             # Seguridad, JWT y Rate Limiting
+├── docker/                   # Contenedores e infraestructura local
+│   ├── docker-compose.yml    # Orquestación de servicios base
+│   ├── postgres/init/        # Scripts SQL de inicialización y RBAC
+│   └── minio/                # Configuración de buckets locales
+├── scripts/                  # Automatización y utilidades de entorno
+│   └── security/             # Scripts de aplicación de RBAC en Postgres
+└── tests/                    # Suite de pruebas automatizadas (Pytest)
+```
 
 ---
 
@@ -56,7 +116,7 @@ Para mantener el código mantenible y una lectura sin sobrecarga cognitiva, la a
 | :---: | :--- | :--- |
 | 🎯 | **[Visión y Principios](./documentation/01_vision_purpose.md)** | Los fundamentos de ingeniería, el caso de uso y el modelo de colaboración. |
 | 🏛️ | **[Arquitectura de Referencia](./documentation/02_architecture.md)** | El flujo Medallion, la pila tecnológica y los Quality Gates. |
-| 📊 | **[Estado y Fases](./documentation/03_status_phases.md)** | Radiografía técnica de las 6 fases y métricas de ejecución. |
+| 📊 | **[Estado y Fases](./documentation/03_status_phases.md)** | Radiografía técnica de las 7 fases y métricas de ejecución. |
 | 🔒 | **[Seguridad y RBAC](./documentation/04_security_roadmap.md)** | Postura de seguridad, trayectoria evolutiva y *Least Privilege*. |
 | 🎯 | **[Calidad y Gobernanza](./documentation/05_quality_governance.md)** | Contratos de datos, linaje y la Triple Barrera de Calidad. |
 | 🚀 | **[Guía de Inicio Rápido](./documentation/06_quickstart_guide.md)** | El paso a paso en terminal para levantar toda la plataforma en Fedora. |
@@ -94,5 +154,5 @@ Distribuido bajo la **Licencia MIT**. Consulta [`LICENSE`](./LICENSE) para más 
 <div align="center">
 <i>Construido con rigor de ingeniería, documentado con honestidad técnica y abierto a quien quiera aprender.</i>
 <br>
-<b>Data Intelligence Platform · Fase 6 · 2026</b>
+<b>Data Intelligence Platform · Fase 7 · 2026</b>
 </div>

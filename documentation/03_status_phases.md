@@ -1,6 +1,6 @@
-# 📊 Estado de Avance: Radiografía Técnica de las 6 Fases
+# 📊 Estado de Avance: Radiografía Técnica de las 7 Fases
 
-Este documento detalla la implementación y validación técnica de las 6 fases completadas. No es teoría; es el registro de un ecosistema local *end-to-end* operativo, validado con Quality Gates, pruebas automatizadas y métricas de ejecución.
+Este documento detalla la implementación y validación técnica de las 7 fases completadas. No es teoría; es el registro de un ecosistema local *end-to-end* operativo, validado con Quality Gates, pruebas automatizadas y métricas de ejecución.
 
 ## 🏗️ Fase 1: Bootstrap e Infraestructura
 **Objetivo:** Levantar un entorno reproducible y aislado.
@@ -64,22 +64,26 @@ Este documento detalla la implementación y validación técnica de las 6 fases 
 *   **Stack:** FastAPI, Uvicorn, Pydantic, SQLAlchemy Async, JWT.
 *   **Hitos logrados:**
     *   Arquitectura modular: routers por dominio (`ports`, `vessels`, `routes`, `anomalies`).
-    *   Conexión a base de datos aislada usando exclusivamente `api_user`.
+    *   Conexión a base de datos aislada exclusivamente `api_user`.
     *   Seguridad: JWT con expiración de 30 minutos, Rate Limiting con slowapi y CORS.
     *   Documentación automática con Swagger UI interactivo.
 *   **Métricas de Validación:**
     *   **4 tests de Pytest** en verde: healthcheck, login (JWT), rechazo 401 sin token y aceptación 200 con token.
     *   Endpoints operativos y consultando datos reales de la base de datos.
 
+## 🤖 Fase 7: Machine Learning, Modelos Predictivos y Rigor Causal
+**Objetivo:** Modelos predictivos, análisis causal e ingesta de infraestructura portuaria real.
+*   **Stack:** XGBoost, Scikit-Learn, SciPy, statsmodels, curl_cffi, ArcGIS API, MinIO, Joblib, FastAPI.
+*   **Hitos logrados:**
+    *   **Ingesta de Puertos NGA:** Evasión del bloqueo WAF (HTTP 503) mediante `curl_cffi` (impersonación de huella TLS de Chrome 110) y consumo paginado de la API REST de ArcGIS, ingiriendo **3,669 puertos reales** en `bronze.bronze_ports`.
+    *   **Reducción de Dimensionalidad:** Aplicación de PCA y ANOVA F-test (p < 0.05) para eliminar multicolinealidad y seleccionar variables predictivas robustas.
+    *   **Modelo XGBoost (ETA):** Entrenamiento con split temporal estricto (70/15/15) para prevenir *data leakage*, incorporando regularización L1/L2 y *Early Stopping*.
+    *   **Rigor Causal (Granger):** Implementación del Test de Causalidad de Granger con `statsmodels` para evaluar relaciones temporales predictivas entre series de congestión portuaria.
+    *   **Model Registry (MinIO):** Serialización de artefactos con `joblib` y versionado automático en MinIO S3 (bucket `ml-models`).
+    *   **Inferencia en FastAPI:** Creación del endpoint seguro `POST /api/v1/predict/eta` protegido con JWT, que carga dinámicamente el modelo más reciente desde MinIO.
+*   **Métricas de Validación:**
+    *   **Modelo XGBoost:** Evaluación de MAE y RMSE en el conjunto de prueba temporal (separado de train/val).
+    *   **Pytest:** Pruebas automatizadas en verde validando el contrato Pydantic y el acceso autorizado al endpoint de inferencia.
+
 ---
 *Documento mantenido bajo el esquema: problema → alternativas → decisión → justificación → consecuencias.*
-
-## 🚧 Fase 7: Machine Learning Avanzado (En Progreso)
-**Objetivo:** Modelos predictivos y MLOps.
-*   **Stack:** XGBoost, Prophet, Scikit-Learn, Joblib, MinIO.
-*   **Hitos logrados:**
-    *   Split temporal estricto (70/15/15) para evitar *data leakage*.
-    *   Entrenamiento de modelo **XGBoost** para predicción de ETA (Regresión) con Early Stopping y Regularización.
-    *   Implementación de **Causalidad de Granger** para validar relaciones temporales.
-    *   Registro de artefactos (`.joblib`) en MinIO S3 (`bucket: ml-models`).
-    *   Endpoint `POST /predict/eta` para inferencia en FastAPI.

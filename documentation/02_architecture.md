@@ -10,7 +10,7 @@ El pipeline sigue una topología de capas progresivas. Cada transición crítica
 [ FUENTES DE DATOS ] (NOAA AIS, APIs Públicas, Sensores)
           │
           ▼
-[ INGESTIÓN (Python + Polars) ] ──> Cálculo de checksums SHA-256
+[ INGESTIÓN (Python + Polars + curl_cffi) ] ──> Cálculo de checksums SHA-256
           │
           ▼
 [ LANDING / DATA LAKE ] (MinIO Local / AWS S3 Cloud) ──> Particionado Hive (Zstd)
@@ -26,12 +26,18 @@ El pipeline sigue una topología de capas progresivas. Cada transición crítica
     [ 🛡️ QUALITY GATE 2 ] (Integridad referencial y continuidad temporal)
           │
           ▼
-[ GOLD (dbt + PostgreSQL/Snowflake) ] ──> Modelado Dimensional y Data Marts
+[ GOLD (dbt + PostgreSQL/Snowflake) ] ──> Modelado Dimensional (3,669 Puertos NGA)
           │
     [ 🛡️ QUALITY GATE 3 ] (Consistencia cross-layer y ausencia de data leakage)
           │
           ▼
-[ CAPA DE CONSUMO ] ──> API REST (FastAPI), ML (Scikit-Learn), LLMs (Gemini)
+[ CAPA DE CONSUMO ]
+    ┌──────────────┬───────────────┬─────────────────────┐
+    │              │               │                     │
+[ API REST ]   [ MLOps / XGBoost ] [ LLMs (Gemini) ]
+(FastAPI)      (MinIO Model Reg.)  (Generative Briefings)
+    │              │               │
+    └──────────────┴───────────────┘
 ```
 
 ## 2. Stack Tecnológico y Justificación Arquitectónica
@@ -42,12 +48,15 @@ La elección de herramientas responde a criterios de escalabilidad, robustez, ma
 | :--- | :--- | :--- |
 | **Orquestación** | Apache Airflow 2.10.2 | Coordina dependencias complejas mediante DAGs con la *TaskFlow API*. Monitorea reintentos y SLAs. |
 | **Ingesta y Datos** | Python 3.14 + Polars | Polars (Rust) se usa para extracción y manipulación de datos en memoria con rendimiento superior a Pandas. |
+| **Web Scraping / WAF** | `curl_cffi` | Evasión de Firewalls (WAF) gubernamentales mediante impersonación de huella TLS (Chrome 110) para ingesta NGA. |
 | **Transformación** | dbt (Data Build Tool) 1.12 | Aplica lógica de negocio SQL (ELT). Utiliza tests declarativos para validar contratos de datos en Silver y Gold. |
 | **Base de Datos Core** | PostgreSQL 16 | Almacén relacional estructurado en esquemas físicos (`bronze`, `silver`, `gold`). Uso intensivo de JSONB para cuarentena. |
 | **Data Lake** | MinIO (Local) / AWS S3 | Emulador S3 local que garantiza portabilidad. En cloud se usa S3 con cifrado KMS y particionado Hive. |
 | **Consumo API** | FastAPI + Pydantic | API REST asíncrona de alto rendimiento. Validación estricta de esquemas y documentación OpenAPI automática. |
 | **Seguridad API** | JWT + OAuth2 + slowapi | Autenticación basada en tokens de corta duración (30m) y protección contra ataques DoS mediante Rate Limiting. |
-| **Machine Learning** | Scikit-Learn + SHAP + SciPy | Modelos predictivos (ETA, Congestión) y detección de anomalías (Isolation Forest). SHAP para explicabilidad. |
+| **Machine Learning** | XGBoost + Scikit-Learn | Modelos predictivos de ETA (Regresión) y detección de anomalías. Uso de PCA y ANOVA para selección de features. |
+| **Rigor Causal** | `statsmodels` (Granger) | Validación de relaciones predictivas temporales (Causalidad de Granger) para evitar falacias de correlación. |
+| **MLOps Registry** | MinIO + Joblib | Serialización y versionado de modelos (`.joblib`) en buckets S3 para su consumo dinámico en la API. |
 | **Inteligencia LLM** | Google Gemini API | Generación de *briefings* operacionales. Se alimenta solo de eventos estructurados de Gold para evitar alucinaciones. |
 | **Cloud Infra** | AWS (IAM, Lambda, CloudWatch) | Fase de despliegue productivo. Uso de roles (IAM) y procesamiento serverless para eventos específicos. |
 | **Secrets Management**| AWS Secrets Manager | Eliminación de `.env` en producción. Rotación automática de credenciales de bases de datos y APIs. |
@@ -74,7 +83,7 @@ La elección de herramientas responde a criterios de escalabilidad, robustez, ma
 
 ### 3.4. Capa Gold (Modelado para Consumo)
 *   **Propósito:** Datos listos para dashboards, ML y API.
-*   **Transformación:** Data Marts (ej. `fact_vessel_voyage`, `agg_port_congestion`, `vessel_intelligence`).
+*   **Transformación:** Data Marts (ej. `fact_vessel_voyage`, `agg_port_congestion`, `dim_port` con 3,669 puertos reales NGA).
 *   **Materialización:** Tablas físicas (Tables) para garantizar latencia cero en las consultas de la API.
 
 ## 4. La Triple Barrera de Calidad (Quality Gates)

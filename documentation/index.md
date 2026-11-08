@@ -12,11 +12,11 @@ A continuación, se presenta el mapa completo de la documentación. Haz clic en 
 | :--- | :--- | :--- |
 | 🎯 **[01. Visión y Principios](./01_vision_purpose.md)** | Los fundamentos de ingeniería, el caso de uso (AIS) y los pilares del proyecto. | Todos (Es el punto de partida). |
 | 🏛️ **[02. Arquitectura de Referencia](./02_architecture.md)** | El flujo Medallion, el stack tecnológico completo (hasta la Fase 12) y los Quality Gates. | Arquitectos de Datos, Tech Leads. |
-| 📊 **[03. Estado y Fases](./03_status_phases.md)** | Radiografía técnica de las 6 fases completadas con sus métricas exactas. | Data Engineers, QA, Reclutadores. |
+| 📊 **[03. Estado y Fases](./03_status_phases.md)** | Radiografía técnica de las 7 fases completadas con sus métricas exactas. | Data Engineers, QA, Reclutadores. |
 | 🔒 **[04. Seguridad y RBAC](./04_security_roadmap.md)** | Postura de seguridad, aislamiento de red, JWT y el modelo de *Least Privilege*. | Security Engineers, DevOps. |
 | 🎯 **[05. Calidad y Gobernanza](./05_quality_governance.md)** | Contratos de datos, linaje inmutable y el sistema de cuarentena (No-Silent Drops). | Data Stewards, Analistas, Auditores. |
-| 🚀 **[06. Guía de Inicio Rápido](./06_quickstart_guide.md)** | El paso a paso exacto en terminal para levantar toda la plataforma en Fedora Linux. | Desarrolladores, Contribuyentes. |
-| 🗺️ **[07. Hoja de Ruta](./07_roadmap.md)** | El futuro del proyecto: ML Avanzado, LLMs (Gemini), AWS, Terraform y Snowflake. | Product Managers, Stakeholders. |
+| 🚀 **[06. Guía de Inicio Rápido](./06_quickstart_guide.md)** | El paso a paso en terminal para levantar toda la plataforma en Fedora Linux. | Desarrolladores, Contribuyentes. |
+| 🗺️ **[Hoja de Ruta](./07_roadmap.md)** | El futuro del proyecto: LLMs (Gemini), AWS, Terraform y Snowflake. | Product Managers, Stakeholders. |
 
 ---
 
