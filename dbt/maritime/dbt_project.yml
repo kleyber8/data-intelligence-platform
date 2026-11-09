@@ -1,11 +1,6 @@
-# ============================================================
-# dbt_project.yml — Data Intelligence Platform
-# Caso de estudio: tráfico marítimo (AIS)
-# ============================================================
 name: 'maritime'
 version: '1.0.0'
 config-version: 2
-
 profile: 'data_intelligence_platform'
 
 model-paths: ["models"]
@@ -14,39 +9,25 @@ test-paths: ["tests"]
 seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
-
 target-path: "target"
 clean-targets:
   - "target"
   - "dbt_packages"
 
+on-run-start:
+  - "SET work_mem = '256MB'"
+
 models:
   maritime:
     staging:
-      +materialized: view
+      +materialized: table
       +schema: silver
       +tags: ["staging", "silver"]
     intermediate:
-      +materialized: view
+      +materialized: table
       +schema: silver
       +tags: ["intermediate", "silver"]
     marts:
       +materialized: table
       +schema: gold
       +tags: ["gold"]
-      core:
-        +tags: ["core", "gold"]
-      port_operations:
-        +tags: ["port_operations", "gold"]
-      port_congestion:
-        +tags: ["port_congestion", "gold"]
-      vessel_intelligence:
-        +tags: ["vessel_intelligence", "gold"]
-      route_intelligence:
-        +tags: ["route_intelligence", "gold"]
-      anomaly:
-        +tags: ["anomaly", "gold"]
-
-vars:
-  start_date: '2024-01-01'
-  timezone: 'UTC'

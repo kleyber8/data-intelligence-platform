@@ -1,102 +1,52 @@
-"""
-DAG 03 — Transformación a Capa Gold con dbt + Quality Gate 3.
-
-Orquesta la construcción de la capa Gold:
-
-    check_silver_ready
-        → run_dbt_gold
-        → test_dbt_gold
-        → run_quality_gate_3
-        → notify_gold_completion
-"""
-from __future__ import annotations
-
-import logging
 from datetime import datetime, timedelta
-from typing import Any
-
 from airflow.decorators import dag, task
 from airflow.operators.bash import BashOperator
+from airflow.sensors.external_task import ExternalTaskSensor
 from sqlalchemy import text
+from src.storage.db import get_engine
+from src.validation.quality_gate_3 import run_quality_gate_3
+import logging
 
 logger = logging.getLogger(__name__)
-
 DBT_PROJECT_DIR = "/opt/airflow/dbt/maritime"
 DBT_PROFILES_DIR = "/home/airflow/.dbt"
 
-DEFAULT_ARGS: dict[str, Any] = {
-    "owner": "data-eng",
-    "depends_on_past": False,
-    "retries": 1,
-    "retry_delay": timedelta(minutes=2),
-    "email_on_failure": False,
-}
-
-
 @dag(
-    dag_id="dag_03_gold_transformation",
-    description="dbt Gold → Quality Gate 3",
-    schedule=None,
-    start_date=datetime(2026, 1, 1),
-    catchup=False,
-    default_args=DEFAULT_ARGS,
-    tags=["maritime", "gold", "dbt", "quality-gate-3"],
-    doc_md=__doc__,
+    dag_id="dag_03_gold_transformation", start_date=datetime(2026, 1, 1), schedule="@daily", catchup=False,
+    default_args={"owner": "data-eng", "retries": 1, "retry_delay": timedelta(minutes=2)}, tags=["dbt", "gold", "maritime"]
 )
-def dag_gold_transformation():
+def gold_transformation_dag():
+    wait_silver_qg2 = ExternalTaskSensor(
+        task_id="wait_silver_qg2", external_dag_id="dag_02_silver_transformation", external_task_id="run_quality_gate_2",
+        execution_delta=None, allowed_states=["success"], failed_states=["failed"], mode="reschedule", poke_interval=300, timeout=10800, soft_fail=False
+    )
 
     @task(task_id="check_silver_ready")
-    def check_silver_ready() -> dict[str, int]:
-        """Verifica que Silver tenga datos antes de construir Gold."""
-        from src.storage.db import get_engine
+    def check_silver_ready():
         with get_engine().begin() as conn:
-            n = int(conn.execute(text(
-                "SELECT COUNT(*) FROM silver.int_vessel_tracks"
-            )).scalar_one())
-        if n == 0:
-            raise ValueError("Silver está vacío. Ejecutar DAG 02 antes.")
-        logger.info("Silver listo: %d registros", n)
-        return {"silver_rows": n}
+            has_rows = conn.execute(text("SELECT EXISTS(SELECT 1 FROM silver.int_vessel_tracks LIMIT 1)")).scalar()
+            has_ports = conn.execute(text("SELECT EXISTS(SELECT 1 FROM silver.stg_ports LIMIT 1)")).scalar()
+        if not (has_rows and has_ports):
+            raise ValueError("Silver incompleto.")
+        logger.info("Silver listo con datos reales.")
 
     run_dbt_gold = BashOperator(
-        task_id="run_dbt_gold",
-        bash_command=(
-            f"cd {DBT_PROJECT_DIR} && "
-            f"DBT_PROFILES_DIR={DBT_PROFILES_DIR} "
-            f"dbt run --select tag:gold --no-version-check"
-        ),
-        append_env=True,
+        task_id="run_dbt_gold", bash_command=f"cd {DBT_PROJECT_DIR} && DBT_PROFILES_DIR={DBT_PROFILES_DIR} dbt run --select tag:gold --no-version-check",
+        append_env=True, execution_timeout=timedelta(hours=3)
     )
 
     test_dbt_gold = BashOperator(
-        task_id="test_dbt_gold",
-        bash_command=(
-            f"cd {DBT_PROJECT_DIR} && "
-            f"DBT_PROFILES_DIR={DBT_PROFILES_DIR} "
-            f"dbt test --select tag:gold --no-version-check"
-        ),
-        append_env=True,
+        task_id="test_dbt_gold", bash_command=f"cd {DBT_PROJECT_DIR} && DBT_PROFILES_DIR={DBT_PROFILES_DIR} dbt test --select tag:gold --no-version-check",
+        append_env=True, execution_timeout=timedelta(hours=1)
     )
 
     @task(task_id="run_quality_gate_3")
-    def qg3() -> dict[str, Any]:
-        from src.validation.quality_gate_3 import run_quality_gate_3
-        return run_quality_gate_3()
+    def run_qg3():
+        res = run_quality_gate_3()
+        if not res["all_passed"]:
+            raise ValueError(f"QG3 falló: {res}")
+        return res
 
-    @task(task_id="notify_gold_completion")
-    def notify(qg3_result: dict[str, Any]) -> None:
-        status = "OK" if qg3_result["all_passed"] else "FAIL"
-        logger.info("=== Gold pipeline finalizado: %s ===", status)
-        logger.info("Violaciones totales: %d", qg3_result["total_violations"])
-        for check in qg3_result["checks"]:
-            logger.info("  - %s: %s (%d)", check["rule"],
-                        "PASS" if check["passed"] else "FAIL", check["violations"])
+    wait_silver_qg2 >> check_silver_ready() >> run_dbt_gold >> test_dbt_gold >> run_qg3()
 
-    silver = check_silver_ready()
-    qg3_result = qg3()
-    done = notify(qg3_result)
-
-    silver >> run_dbt_gold >> test_dbt_gold >> qg3_result >> done
-
-
-dag_gold_transformation()
+gold_transformation_dag()

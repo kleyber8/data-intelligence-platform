@@ -1,6 +1,9 @@
 {{ config(
-    materialized='view',
-    tags=['intermediate', 'silver']
+    post_hook=[
+      "CREATE INDEX IF NOT EXISTS idx_tracks_track_id_ts ON {{ this }}(track_id, position_ts)",
+      "CREATE INDEX IF NOT EXISTS idx_tracks_anomaly ON {{ this }}(ingestion_row_id) WHERE is_speed_anomaly = TRUE",
+      "CREATE INDEX IF NOT EXISTS idx_tracks_distance ON {{ this }}(distance_km) WHERE distance_km IS NOT NULL"
+    ]
 ) }}
 
 WITH with_breaks AS (
@@ -13,7 +16,6 @@ WITH with_breaks AS (
         END AS new_track_flag
     FROM {{ ref('int_vessel_position_deltas') }}
 ),
-
 with_track_id AS (
     SELECT
         *,
@@ -26,24 +28,9 @@ with_track_id AS (
         ) AS track_id
     FROM with_breaks
 )
-
 SELECT
-    track_id,
-    mmsi,
-    ingestion_row_id,
-    ingestion_run_id,
-    latitude,
-    longitude,
-    speed_over_ground,
-    course_over_ground,
-    heading,
-    position_ts,
-    vessel_name,
-    vessel_type,
-    nav_status,
-    time_delta_seconds,
-    distance_km,
-    calculated_speed_knots,
-    speed_delta_knots,
-    is_speed_anomaly
+    track_id, mmsi, ingestion_row_id, ingestion_run_id, latitude, longitude,
+    speed_over_ground, course_over_ground, heading, position_ts,
+    vessel_name, vessel_type, nav_status, time_delta_seconds, distance_km,
+    calculated_speed_knots, speed_delta_knots, is_speed_anomaly
 FROM with_track_id

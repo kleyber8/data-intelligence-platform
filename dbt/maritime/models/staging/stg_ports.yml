@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: stg_ports
+    description: "Staging Silver: WPI de la NGA deduplicado y tipado."
+    columns:
+      - name: port_id
+        tests: [not_null, unique]
+      - name: port_name
+        tests: [not_null]
+      - name: country_code
+        tests: [not_null]
+      - name: latitude
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -90
+                max_value: 90
+      - name: longitude
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -180
+                max_value: 180

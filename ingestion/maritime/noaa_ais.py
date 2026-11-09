@@ -1,23 +1,10 @@
-"""
-Extractor de posiciones AIS.
-
-Genera datos sintéticos realistas: cada embarcación navega cerca de un
-puerto real, con trayectoria coherente y velocidad plausible. También
-soporta descarga real desde NOAA.
-"""
-from __future__ import annotations
-
-import argparse
+"""Ingesta NOAA AIS -> Data Lake (Parquet en MinIO) con IDEMPOTENCIA por checksum."""
 import hashlib
-import io
 import logging
-import math
-import random
-import sys
 import uuid
-from datetime import datetime, timedelta, timezone
+import zipfile
 from pathlib import Path
-from typing import Any
+from datetime import datetime, timezone
 
 import httpx
 import polars as pl
@@ -27,348 +14,115 @@ from src.config import settings
 from src.storage.db import get_engine
 from src.storage.s3_lake import upload_file
 
-logger = logging.getLogger("ingestion.noaa_ais")
+logger = logging.getLogger(__name__)
+RAW_DIR = Path(settings.data_lake_raw_dir) / "maritime"
+DEFAULT_URL = "https://coast.noaa.gov/htdata/CMSP/AISDataHandler/2023/AIS_2023_01_01.zip"
 
-EXPECTED_COLUMNS = [
-    "mmsi", "latitude", "longitude", "speed_over_ground",
-    "course_over_ground", "heading", "position_ts",
-    "vessel_name", "vessel_type", "nav_status",
-]
-
-NOAA_COLUMN_MAPPING = {
-    "sog": "speed_over_ground",
-    "cog": "course_over_ground",
-    "base_date_time": "position_ts",
-    "status": "nav_status",
-    "vesselname": "vessel_name",
-    "vesseltype": "vessel_type",
-}
-
-SCHEMA: dict[str, pl.DataType] = {
-    "mmsi": pl.Utf8,
-    "latitude": pl.Float64,
-    "longitude": pl.Float64,
-    "speed_over_ground": pl.Float64,
-    "course_over_ground": pl.Float64,
-    "heading": pl.Int32,
-    "position_ts": pl.Datetime("us", "UTC"),
-    "vessel_name": pl.Utf8,
-    "vessel_type": pl.Utf8,
-    "nav_status": pl.Utf8,
-}
-
-# Puertos de referencia — misma lista que dim_port.sql
-PORTS = [
-    ("USLAX", 33.7405, -118.2775),
-    ("USNYC", 40.6892,  -74.0445),
-    ("NLRTM", 51.9500,    4.1333),
-    ("SGSIN",  1.2644,  103.8409),
-    ("CNSHA", 31.2304,  121.4737),
-    ("AEJEA", 25.0122,   55.0622),
-    ("DEHAM", 53.5459,    9.9683),
-    ("BEANR", 51.2603,    4.4025),
-    ("KRPUS", 35.1028,  129.0403),
-    ("JPTYO", 35.6528,  139.8394),
-]
-
+SQL_SELECT_PROCESSED = text("""
+    SELECT ingestion_run_id, source_url, checksum_sha256, download_timestamp, rows_ingested
+    FROM metadata.ingestion_runs
+    WHERE status IN ('completed', 'validated')
+      AND rows_ingested > 0
+      AND ( source_system = :source_system
+            AND ( source_url = :source_url OR checksum_sha256 = :checksum_sha256 ) )
+    LIMIT 1
+""")
 
 def compute_sha256(path: Path) -> str:
-    sha = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            sha.update(chunk)
-    return sha.hexdigest()
+    sha256 = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
 
-
-def _normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
-    lower_map = {c.lower(): c for c in df.columns}
-    rename: dict[str, str] = {}
-    for src, dst in NOAA_COLUMN_MAPPING.items():
-        if src in lower_map:
-            rename[lower_map[src]] = dst
-    df = df.rename(rename)
-    missing = [c for c in EXPECTED_COLUMNS if c not in df.columns]
-    if missing:
-        raise ValueError(f"Faltan columnas obligatorias tras normalizar: {missing}")
-    return df.select(EXPECTED_COLUMNS)
-
-
-def generate_synthetic_ais_data(
-    num_rows: int = 200,
-    num_invalid: int = 30,
-) -> pl.DataFrame:
-    """
-    Genera datos AIS sintéticos realistas.
-
-    Cada embarcación navega cerca de un puerto real, mantiene un rumbo
-    coherente y produce trayectorias físicamente plausibles.
-    """
-    rng = random.Random(42)
-    now = datetime.now(timezone.utc)
-    num_valid = max(num_rows - num_invalid, 0)
-
-    vessel_types = ["Cargo", "Tanker", "Passenger", "Fishing"]
-    nav_statuses = ["Under way", "At anchor", "Moored"]
-
-    rows: list[dict[str, Any]] = []
-    vessels = 10
-    positions_per_vessel = max(num_valid // vessels, 1)
-
-    for v_idx in range(vessels):
-        mmsi = f"{rng.randint(200000000, 799999999)}"
-        vessel_type = rng.choice(vessel_types)
-        nav_status = "Under way"
-
-        # Cada barco se asigna a uno de 5 puertos (2 barcos por puerto)
-        port_idx = v_idx % 5
-        _, base_lat, base_lon = PORTS[port_idx]
-        lat = base_lat + rng.uniform(-0.15, 0.15)
-        lon = base_lon + rng.uniform(-0.15, 0.15)
-        ts = now - timedelta(hours=rng.randint(12, 48))
-        bearing = rng.uniform(0, 2 * math.pi)
-
-        for _ in range(positions_per_vessel):
-            speed_knots = rng.uniform(8.0, 16.0)
-            dt_minutes = rng.uniform(15.0, 40.0)
-            distance_km = speed_knots * (dt_minutes / 60.0) * 1.852
-
-            # Deriva suave del rumbo
-            bearing += rng.uniform(-math.pi / 12, math.pi / 12)
-
-            dlat = (distance_km / 111.0) * math.cos(bearing)
-            dlon = (distance_km / (111.0 * max(math.cos(math.radians(lat)), 0.1))) * math.sin(bearing)
-
-            lat += dlat
-            lon += dlon
-            ts += timedelta(minutes=dt_minutes)
-
-            lat = max(min(lat, 89.0), -89.0)
-            lon = ((lon + 180) % 360) - 180
-
-            rows.append({
-                "mmsi": mmsi,
-                "latitude": lat,
-                "longitude": lon,
-                "speed_over_ground": round(speed_knots, 2),
-                "course_over_ground": round(math.degrees(bearing) % 360, 1),
-                "heading": int(math.degrees(bearing) % 360),
-                "position_ts": ts,
-                "vessel_name": f"VESSEL_{v_idx:03d}",
-                "vessel_type": vessel_type,
-                "nav_status": nav_status,
-            })
-
-    # Filas inválidas
-    patterns = [
-        "mmsi_null", "mmsi_short", "lat_out", "lon_out",
-        "sog_neg", "sog_high", "future",
-    ]
-    for i in range(num_invalid):
-        pattern = patterns[i % len(patterns)]
-        row: dict[str, Any] = {
-            "mmsi": f"{rng.randint(200000000, 799999999)}",
-            "latitude": rng.uniform(-60.0, 70.0),
-            "longitude": rng.uniform(-170.0, 170.0),
-            "speed_over_ground": round(rng.uniform(5.0, 18.0), 2),
-            "course_over_ground": round(rng.uniform(0.0, 359.9), 1),
-            "heading": rng.randint(0, 359),
-            "position_ts": now - timedelta(minutes=rng.randint(1, 1440)),
-            "vessel_name": f"INVALID_{i:04d}",
-            "vessel_type": "Unknown",
-            "nav_status": "Unknown",
-        }
-        if pattern == "mmsi_null":
-            row["mmsi"] = None
-        elif pattern == "mmsi_short":
-            row["mmsi"] = "12345"
-        elif pattern == "lat_out":
-            row["latitude"] = 95.0
-        elif pattern == "lon_out":
-            row["longitude"] = 200.0
-        elif pattern == "sog_neg":
-            row["speed_over_ground"] = -1.5
-        elif pattern == "sog_high":
-            row["speed_over_ground"] = 150.0
-        elif pattern == "future":
-            row["position_ts"] = now + timedelta(days=1)
-        rows.append(row)
-
-    rng.shuffle(rows)
-    return pl.DataFrame(rows, schema=SCHEMA)
-
-
-def download_noaa_ais(url: str) -> pl.DataFrame:
-    logger.info("Descargando NOAA AIS desde %s", url)
-    with httpx.Client(timeout=120.0, follow_redirects=True) as client:
-        resp = client.get(url)
-        resp.raise_for_status()
-
-    if url.lower().endswith(".parquet"):
-        df = pl.read_parquet(io.BytesIO(resp.content))
-    else:
-        df = pl.read_csv(io.BytesIO(resp.content), try_parse_dates=True, infer_schema_length=10000)
-
-    return _normalize_columns(df)
-
-
-def record_ingestion_metadata(
-    *,
-    ingestion_run_id: str,
-    source_system: str,
-    source_url: str | None,
-    source_file: str,
-    download_timestamp: datetime,
-    file_size_bytes: int,
-    checksum_sha256: str,
-    data_period_start: datetime | None,
-    data_period_end: datetime | None,
-    rows_ingested: int,
-    status: str,
-    error_message: str | None = None,
-) -> None:
-    sql = text("""
-        INSERT INTO metadata.ingestion_runs (
-            ingestion_run_id, source_system, source_url, source_file,
-            download_timestamp, file_size_bytes, checksum_sha256,
-            data_period_start, data_period_end, rows_ingested, status, error_message
-        ) VALUES (
-            :ingestion_run_id, :source_system, :source_url, :source_file,
-            :download_timestamp, :file_size_bytes, :checksum_sha256,
-            :data_period_start, :data_period_end, :rows_ingested, :status, :error_message
-        )
-        ON CONFLICT (ingestion_run_id) DO UPDATE SET
-            status = EXCLUDED.status,
-            rows_ingested = EXCLUDED.rows_ingested,
-            error_message = EXCLUDED.error_message
-    """)
-    with get_engine().begin() as conn:
-        conn.execute(sql, {
-            "ingestion_run_id": ingestion_run_id,
-            "source_system": source_system,
-            "source_url": source_url,
-            "source_file": source_file,
-            "download_timestamp": download_timestamp,
-            "file_size_bytes": file_size_bytes,
-            "checksum_sha256": checksum_sha256,
-            "data_period_start": data_period_start,
-            "data_period_end": data_period_end,
-            "rows_ingested": rows_ingested,
-            "status": status,
-            "error_message": error_message,
-        })
-
-
-def run_ingestion(source: str = "synthetic", source_url: str | None = None) -> dict[str, Any]:
-    ingestion_run_id = str(uuid.uuid4())
-    download_ts = datetime.now(timezone.utc)
-
+def _select_processed_run(source_url: str | None = None, checksum_sha256: str | None = None, source_system: str = "noaa") -> dict | None:
+    params = {
+        "source_system": source_system,
+        "source_url": source_url or "--unused--",
+        "checksum_sha256": checksum_sha256 or "--unused--",
+    }
     try:
-        if source == "synthetic":
-            df = generate_synthetic_ais_data()
-            source_system = "synthetic"
-            resolved_url = None
-        elif source == "noaa":
-            if not source_url:
-                raise ValueError("source='noaa' requiere source_url explícita")
-            df = download_noaa_ais(source_url)
-            source_system = "NOAA_AIS"
-            resolved_url = source_url
-        else:
-            raise ValueError(f"source desconocido: {source}")
+        with get_engine().begin() as conn:
+            row = conn.execute(SQL_SELECT_PROCESSED, params).mappings().first()
     except Exception as exc:
-        logger.exception("Fallo en la extracción")
-        record_ingestion_metadata(
-            ingestion_run_id=ingestion_run_id,
-            source_system=source,
-            source_url=source_url,
-            source_file="",
-            download_timestamp=download_ts,
-            file_size_bytes=0,
-            checksum_sha256="",
-            data_period_start=None,
-            data_period_end=None,
-            rows_ingested=0,
-            status="failed",
-            error_message=str(exc),
-        )
+        logger.warning("No se pudo consultar metadata.ingestion_runs: %s", exc)
+        return None
+    return dict(row) if row else None
+
+def run_ingestion(source: str = "noaa", url: str | None = None) -> dict:
+    run_id = str(uuid.uuid4())
+    start_time = datetime.now(timezone.utc)
+    if not url:
+        url = DEFAULT_URL
+
+    prev = _select_processed_run(source_url=url, source_system=source)
+    if prev:
+        logger.info("SKIP (pre-descarga): %s ya fue procesado como run=%s", url, prev["ingestion_run_id"])
+        return {"ingestion_run_id": str(prev["ingestion_run_id"]), "local_path": None, "rows_ingested": 0, "status": "already_processed"}
+
+    logger.info("Descargando ZIP de NOAA: %s", url)
+    local_zip = Path("/tmp") / f"noaa_{run_id}.zip"
+    try:
+        with httpx.stream("GET", url, timeout=300.0, follow_redirects=True) as response:
+            response.raise_for_status()
+            with open(local_zip, "wb") as f:
+                for chunk in response.iter_bytes(chunk_size=1024 * 1024):
+                    f.write(chunk)
+    except httpx.HTTPError as exc:
+        local_zip.unlink(missing_ok=True)
         raise
 
-    year = download_ts.strftime("%Y")
-    month = download_ts.strftime("%m")
-    day = download_ts.strftime("%d")
-    filename = f"ais_positions_{ingestion_run_id}.parquet"
-    partition_dir = (
-        settings.data_lake_raw_dir / "maritime"
-        / f"year={year}" / f"month={month}" / f"day={day}"
-    )
+    checksum = compute_sha256(local_zip)
+    prev = _select_processed_run(checksum_sha256=checksum, source_system=source)
+    if prev:
+        local_zip.unlink(missing_ok=True)
+        logger.info("SKIP (post-descarga): checksum ya procesado en run=%s", prev["ingestion_run_id"])
+        return {"ingestion_run_id": str(prev["ingestion_run_id"]), "local_path": None, "rows_ingested": 0, "status": "already_processed"}
+
+    with zipfile.ZipFile(local_zip) as z:
+        csv_name = z.namelist()[0]
+        csv_path = Path("/tmp") / f"noaa_{run_id}.csv"
+        z.extract(csv_name, path="/tmp")
+        Path("/tmp", csv_name).rename(csv_path)
+    local_zip.unlink(missing_ok=True)
+
+    partition_dir = RAW_DIR / f"year={start_time.year}" / f"month={start_time.month:02d}" / f"day={start_time.day:02d}"
     partition_dir.mkdir(parents=True, exist_ok=True)
-    local_path = partition_dir / filename
+    local_parquet = partition_dir / f"ais_{run_id}.parquet"
 
-    df.write_parquet(local_path, compression="zstd")
+    lf = pl.scan_csv(csv_path, try_parse_dates=True, schema_overrides={"MMSI": pl.Utf8}).select([
+        pl.col("MMSI").alias("mmsi"), pl.col("BaseDateTime").alias("position_ts"),
+        pl.col("LAT").alias("latitude"), pl.col("LON").alias("longitude"),
+        pl.col("SOG").alias("speed_over_ground"), pl.col("COG").alias("course_over_ground"),
+        pl.col("Heading").alias("heading"), pl.col("VesselName").alias("vessel_name"),
+        pl.col("VesselType").alias("vessel_type"), pl.col("Status").alias("nav_status"),
+    ])
+    lf.sink_parquet(local_parquet, compression="zstd")
+    csv_path.unlink(missing_ok=True)
 
-    checksum = compute_sha256(local_path)
-    file_size = local_path.stat().st_size
+    file_size = local_parquet.stat().st_size
+    s3_key = f"raw/maritime/year={start_time.year}/month={start_time.month:02d}/day={start_time.day:02d}/{local_parquet.name}"
+    upload_file(local_parquet, settings.s3_bucket_raw, s3_key)
 
-    if df.height > 0:
-        data_period_start = df["position_ts"].min()
-        data_period_end = df["position_ts"].max()
-    else:
-        data_period_start = data_period_end = None
+    with get_engine().begin() as conn:
+        conn.execute(text("""
+            INSERT INTO metadata.ingestion_runs
+            (ingestion_run_id, source_system, source_url, source_file, download_timestamp, file_size_bytes, checksum_sha256, rows_ingested, status)
+            VALUES (:run_id, :source, :url, :local_path, :start_time, :file_size, :checksum, 0, 'landed')
+        """), {"run_id": run_id, "source": source, "url": url, "local_path": str(local_parquet), "start_time": start_time, "file_size": file_size, "checksum": checksum})
 
-    s3_key = f"raw/maritime/year={year}/month={month}/day={day}/{filename}"
-    upload_file(local_path, settings.s3_bucket_raw, s3_key)
+    logger.info("Run %s registrado (status=landed).", run_id)
+    return {"ingestion_run_id": run_id, "local_path": str(local_parquet), "rows_ingested": 0, "status": "created", "checksum_sha256": checksum}
 
-    record_ingestion_metadata(
-        ingestion_run_id=ingestion_run_id,
-        source_system=source_system,
-        source_url=resolved_url,
-        source_file=str(local_path),
-        download_timestamp=download_ts,
-        file_size_bytes=file_size,
-        checksum_sha256=checksum,
-        data_period_start=data_period_start,
-        data_period_end=data_period_end,
-        rows_ingested=df.height,
-        status="landed",
-    )
+def mark_run_completed(ingestion_run_id: str, rows_ingested: int) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(text("UPDATE metadata.ingestion_runs SET rows_ingested = :rows, status = 'completed', error_message = NULL WHERE ingestion_run_id = :run_id AND status IN ('landed', 'completed')"), {"run_id": ingestion_run_id, "rows": int(rows_ingested)})
+    logger.info("Run %s marcado como COMPLETED (%d filas).", ingestion_run_id, rows_ingested)
 
-    logger.info(
-        "Ingestión OK → run_id=%s, filas=%d, tamaño=%d bytes",
-        ingestion_run_id, df.height, file_size,
-    )
-
-    return {
-        "ingestion_run_id": ingestion_run_id,
-        "local_path": str(local_path),
-        "s3_key": s3_key,
-        "checksum_sha256": checksum,
-        "file_size_bytes": file_size,
-        "rows_ingested": df.height,
-        "source_system": source_system,
-        "download_timestamp": download_ts.isoformat(),
-    }
-
-
-def _cli() -> int:
-    parser = argparse.ArgumentParser(description="Extractor de AIS (NOAA / sintético)")
-    parser.add_argument("--source", choices=["synthetic", "noaa"], default="synthetic")
-    parser.add_argument("--url", type=str, default=None)
-    parser.add_argument("--log-level", default="INFO")
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=args.log_level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-    try:
-        meta = run_ingestion(source=args.source, source_url=args.url)
-        print("\n=== Resumen de ingestión ===")
-        for k, v in meta.items():
-            print(f"  {k}: {v}")
-        return 0
-    except Exception:
-        return 1
-
+def mark_run_failed(ingestion_run_id: str, error_message: str) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(text("UPDATE metadata.ingestion_runs SET status = 'failed', error_message = :error_message WHERE ingestion_run_id = :run_id AND status = 'landed'"), {"run_id": ingestion_run_id, "error_message": error_message[:1000]})
 
 if __name__ == "__main__":
-    sys.exit(_cli())
+    logging.basicConfig(level=logging.INFO)
+    run_ingestion(source="noaa")

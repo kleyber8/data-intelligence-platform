@@ -1,5 +1,5 @@
 # ============================================================
-# Data Intelligence Platform — .gitignore
+# Data Intelligence Platform — .gitignore (definitivo)
 # ============================================================
 
 # ---------- Secretos y configuración local ----------
@@ -38,6 +38,7 @@ venv/
 ENV/
 env/
 .python-version
+pip-log.txt
 
 # ---------- Testing / Coverage ----------
 .pytest_cache/
@@ -56,7 +57,7 @@ coverage.xml
 dmypy.json
 .ruff_cache/
 
-# ---------- dbt ----------
+# ---------- dbt: artefactos regenerables ----------
 dbt/maritime/target/
 dbt/maritime/dbt_packages/
 dbt/maritime/logs/
@@ -73,11 +74,16 @@ airflow/airflow.cfg
 airflow/webserver_config.py
 airflow/standalone_admin_password.txt
 
+# ---------- Archivos temporales de ingesta (viven en /tmp, nunca en el repo) ----------
+tmp/
+.tmp/
+
 # ---------- Docker ----------
 docker-compose.override.yml
 *.pid
+docker/.env
 
-# ---------- ML / modelos ----------
+# ---------- ML / modelos binarios ----------
 ml/models/*
 !ml/models/.gitkeep
 *.pkl
@@ -91,6 +97,13 @@ ml/models/*
 !.vscode/extensions.json
 !.vscode/launch.json
 !.vscode/tasks.json
+*.code-workspace
+
+# ---------- IDEs / agentes IA ----------
+.idea/
+.cursor/
+.opencode/
+.windsurf/
 
 # ---------- Sistema operativo ----------
 .DS_Store
@@ -101,7 +114,4 @@ Thumbs.db
 *.bak
 *.tmp
 .Trash-*
-
-# ---------- Logs ----------
-*.log
-logs/
+*.sqlite3

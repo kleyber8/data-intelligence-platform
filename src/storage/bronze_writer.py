@@ -1,106 +1,103 @@
-"""
-Escritor de la Capa Bronze.
-
-Lee el archivo Parquet desde Landing (data/raw/...), añade columnas
-de auditoría (ingestion_run_id, ingestion_row_id, created_at,
-quality_status) y lo persiste en bronze.bronze_ais_position.
-"""
-from __future__ import annotations
-
 import logging
 import uuid
-from datetime import datetime, timezone
+import io
 from pathlib import Path
+from datetime import datetime, timezone
 
 import polars as pl
-from sqlalchemy import text
+import psycopg2
+from psycopg2 import sql
 
-from src.storage.db import get_engine
+from src.config import settings
 
-logger = logging.getLogger("storage.bronze_writer")
-
+logger = logging.getLogger(__name__)
 BRONZE_TABLE = "bronze.bronze_ais_position"
 
-# Columnas destino en Bronze (sin contar SERIAL/BIGSERIAL y DEFAULT)
-BRONZE_COLUMNS = [
-    "ingestion_row_id",
-    "mmsi", "latitude", "longitude",
-    "speed_over_ground", "course_over_ground", "heading",
-    "position_ts", "vessel_name", "vessel_type", "nav_status",
-    "ingestion_run_id", "source_file",
-]
-
-
 def _resolve_local_path(ingestion_run_id: str) -> Path:
-    """Busca el Parquet de una corrida en el Data Lake local."""
-    from src.config import settings
-
-    base = settings.data_lake_raw_dir / "maritime"
-    matches = list(base.rglob(f"ais_positions_{ingestion_run_id}.parquet"))
+    base_dir = Path(settings.data_lake_raw_dir) / "maritime"
+    matches = list(base_dir.rglob(f"*{ingestion_run_id}*.parquet"))
     if not matches:
-        raise FileNotFoundError(
-            f"No se encontró el Parquet para run_id={ingestion_run_id} en {base}"
-        )
-    return matches[0]
-
+        raise FileNotFoundError(f"No se encontró el Parquet para run_id={ingestion_run_id}")
+    return max(matches, key=lambda p: p.stat().st_mtime)
 
 def write_bronze_from_landing(ingestion_run_id: str) -> int:
-    """
-    Carga el Parquet de Landing en bronze.bronze_ais_position.
-
-    Returns:
-        Número de filas insertadas.
-    """
     local_path = _resolve_local_path(ingestion_run_id)
-    logger.info("Leyendo Parquet desde %s", local_path)
-    df = pl.read_parquet(local_path)
+    logger.info(f"Leyendo archivo: {local_path}")
 
-    if df.height == 0:
-        logger.warning("El archivo %s no contiene filas", local_path)
-        return 0
-
-    # ---------- Añadir columnas de auditoría ----------
-    now = datetime.now(timezone.utc)
-    row_ids = [str(uuid.uuid4()) for _ in range(df.height)]
-
-    df = df.with_columns([
-        pl.Series("ingestion_row_id", row_ids, dtype=pl.Utf8),
-        pl.lit(ingestion_run_id, dtype=pl.Utf8).alias("ingestion_run_id"),
-        pl.lit(str(local_path), dtype=pl.Utf8).alias("source_file"),
-    ])
-
-    # Orden final de columnas para que coincida con la tabla
-    df = df.select(BRONZE_COLUMNS)
-
-    # ---------- Insertar en PostgreSQL ----------
-    logger.info("Insertando %d filas en %s", df.height, BRONZE_TABLE)
-    df.write_database(
-        table_name=BRONZE_TABLE,
-        connection=get_engine(),
-        if_table_exists="append",
+    conn = psycopg2.connect(
+        dbname=settings.postgres_db, user=settings.postgres_user,
+        password=settings.postgres_password, host=settings.postgres_host, port=settings.postgres_port
     )
+    cursor = conn.cursor()
 
-    # ---------- Actualizar metadata.ingestion_runs a estado 'bronze_loaded' ----------
-    with get_engine().begin() as conn:
-        conn.execute(
-            text("""
-                UPDATE metadata.ingestion_runs
-                SET status = 'bronze_loaded'
-                WHERE ingestion_run_id = :run_id
-                  AND status IN ('landed', 'pending')
-            """),
-            {"run_id": ingestion_run_id},
-        )
+    cursor.execute("SET LOCAL synchronous_commit = OFF;")
+    cursor.execute("SET LOCAL maintenance_work_mem = '512MB';")
+    
+    expected_cols = [
+        "ingestion_row_id", "mmsi", "latitude", "longitude", 
+        "speed_over_ground", "course_over_ground", "heading", 
+        "position_ts", "vessel_name", "vessel_type", "nav_status", 
+        "ingestion_run_id", "source_file", "created_at", "quality_status"
+    ]
+    
+    total_inserted = 0
+    chunk_size = 250_000
 
-    logger.info("Bronze cargado: %d filas para run_id=%s", df.height, ingestion_run_id)
-    return df.height
+    try:
+        for df_chunk in pl.read_parquet(local_path).iter_slices(n_rows=chunk_size):
+            df_chunk = df_chunk.with_columns([
+                pl.Series("ingestion_row_id", [str(uuid.uuid4()) for _ in range(len(df_chunk))]),
+                pl.lit(ingestion_run_id).alias("ingestion_run_id"),
+                pl.lit(str(local_path)).alias("source_file"),
+                pl.lit(datetime.now(timezone.utc)).alias("created_at"),
+                pl.lit("pending").alias("quality_status")
+            ])
 
+            for col in expected_cols:
+                if col not in df_chunk.columns:
+                    df_chunk = df_chunk.with_columns(pl.lit(None).alias(col))
+            
+            # ¡AQUÍ ESTÁ LA CORRECCIÓN! Forzamos los tipos antes del COPY
+            df_chunk = df_chunk.select([
+                pl.col("ingestion_row_id").cast(pl.Utf8),
+                pl.col("mmsi").cast(pl.Utf8),
+                pl.col("latitude").cast(pl.Float64),
+                pl.col("longitude").cast(pl.Float64),
+                pl.col("speed_over_ground").cast(pl.Float64),
+                pl.col("course_over_ground").cast(pl.Float64),
+                pl.col("heading").cast(pl.Int32, strict=False), # Convierte 511.0 a 511. Si falla, pone null
+                pl.col("position_ts").cast(pl.Datetime),
+                pl.col("vessel_name").cast(pl.Utf8),
+                pl.col("vessel_type").cast(pl.Utf8),
+                pl.col("nav_status").cast(pl.Utf8),
+                pl.col("ingestion_run_id").cast(pl.Utf8),
+                pl.col("source_file").cast(pl.Utf8),
+                pl.col("created_at").cast(pl.Datetime),
+                pl.col("quality_status").cast(pl.Utf8)
+            ])
 
-def count_bronze_rows(ingestion_run_id: str) -> int:
-    """Cuenta las filas de una corrida en Bronze (útil para verificar)."""
-    with get_engine().begin() as conn:
-        result = conn.execute(
-            text("SELECT COUNT(*) FROM bronze.bronze_ais_position WHERE ingestion_run_id = :rid"),
-            {"rid": ingestion_run_id},
-        )
-    return int(result.scalar_one())
+            csv_buffer = io.StringIO()
+            df_chunk.write_csv(csv_buffer)
+            csv_buffer.seek(0)
+
+            cols_str = ", ".join(expected_cols)
+            copy_sql = sql.SQL("COPY {} ({}) FROM STDIN WITH CSV HEADER").format(
+                sql.Identifier(*BRONZE_TABLE.split('.')),
+                sql.SQL(cols_str)
+            )
+            
+            cursor.copy_expert(copy_sql, csv_buffer)
+            total_inserted += len(df_chunk)
+            logger.info(f"Lote insertado: {len(df_chunk)} filas. Total: {total_inserted}")
+
+        conn.commit()
+        logger.info(f"✅ Carga finalizada. Total insertado: {total_inserted} filas.")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error en la carga: {e}")
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+    return total_inserted
