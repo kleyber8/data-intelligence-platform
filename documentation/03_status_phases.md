@@ -1,6 +1,6 @@
-# 📊 Estado de Avance: Radiografía Técnica de las 7 Fases
+# 📊 Estado de Avance: Radiografía Técnica de las Fases
 
-Este documento detalla la implementación y validación técnica de las 7 fases completadas. No es teoría; es el registro de un ecosistema local *end-to-end* operativo, validado con Quality Gates, pruebas automatizadas y métricas de ejecución.
+Este documento detalla la implementación y validación técnica de las 8 fases completadas. No es teoría; es el registro de un ecosistema local *end-to-end* operativo —**desde la Fase 8, con datos reales de producción (NOAA AIS y World Port Index)**—, validado con Quality Gates, pruebas automatizadas y métricas de ejecución.
 
 ## 🏗️ Fase 1: Bootstrap e Infraestructura
 **Objetivo:** Levantar un entorno reproducible y aislado.
@@ -84,6 +84,28 @@ Este documento detalla la implementación y validación técnica de las 7 fases 
 *   **Métricas de Validación:**
     *   **Modelo XGBoost:** Evaluación de MAE y RMSE en el conjunto de prueba temporal (separado de train/val).
     *   **Pytest:** Pruebas automatizadas en verde validando el contrato Pydantic y el acceso autorizado al endpoint de inferencia.
+
+> **Nota evolutiva (Fase 8):** la fuente de puertos original (API REST de ArcGIS) quedó bloqueada por el WAF (HTTP 503) de forma persistente. La Fase 8 reemplaza esa fuente por un espejo CSV estable en Hugging Face; los detalles operativos de la fuente activa están en la sección siguiente.
+
+---
+## 🚀 Fase 8: Hardening de Producción y Datos Reales
+**Objetivo:** Migrar el pipeline de un ecosistema de validación (datos sintéticos y muestras pequeñas) a un ecosistema de **producción con datos reales a escala**, endureciendo la ingesta contra re-ejecuciones y calibrando los Quality Gates contra el ruido real del sensor GPS marino.
+*   **Stack:** Polars (Lazy API), psycopg2 (COPY masivo), Hugging Face (espejo CSV del World Port Index), PostgreSQL, dbt, Airflow.
+*   **Hitos logrados:**
+    *   **Datos Reales NOAA AIS:** Conexión al archivo diario real de NOAA (**8.1 millones de filas**) como fuente primaria, reemplazando los datos sintéticos de las fases 2–5 en la operación diaria del pipeline.
+    *   **Idempotencia de la Ingesta:** Implementación de doble validación en el DAG 01 —por `source_url` (1 URL ⇔ 1 archivo diario ⇔ 1 ciclo de datos) y por **checksum SHA-256** del ZIP— contra `metadata.ingestion_runs`. El run transita el ciclo `landed → completed` (marcado tras el COPY exitoso), y el DAG devuelve `already_processed` ante re-triggers, backfills o descoordinaciones, sin fallar y sin duplicar los 8.1M de filas.
+    *   **Carga Masiva a Bronze:** Optimización de la escritura con `psycopg2.COPY` en chunks de 250,000 filas y `SET LOCAL synchronous_commit = OFF` (más `maintenance_work_mem` elevado): la carga de 8.1M de filas completó en **segundos**, no en minutos, al transferir el costo del `fsync` al `checkpointer` de PostgreSQL en lugar de ejecutarlo por cada inserción.
+    *   **Lazy API de Polars:** Transformación CSV→Parquet con `scan_csv` + `sink_parquet` (streaming): el consumo de memoria es constante e independiente del tamaño del archivo diario de NOAA (gigabytes), eliminando el riesgo de OOM durante la ingesta.
+    *   **Puertos vía Hugging Face:** Reemplazo de la API de ArcGIS (bloqueada de forma persistente por WAF/503) por el espejo CSV del dataset `world-seaports-and-airports`: **3,804 puertos reales** limpiados (detrás de headers tolerantes, con filtrado de coordenadas ±90/±180 y deduplicación por `port_index`) y cargados en `bronze.bronze_ports` con `TRUNCATE` previo dentro de la misma transacción (replace atómico).
+    *   **Threshold de Tolerancia del 1% en QG2:** Con datos GPS marinos reales, un porcentaje pequeño de ruido es estadísticamente esperable (`GPS drift`, transmisores desalineados, tasas de reporte irregulares). El QG2 pasa de bloquear por un solo error a evaluar el **porcentaje global de violaciones** sobre el total analizado. La primera corrida con el archivo diario real produjo 2,849 violaciones de `spatial_continuity`; con el threshold del 1% el gate pasó de estado FAIL a **resultado válido**, y las violaciones quedan auditadas (ver [Calidad y Gobernanza](./05_quality_governance.md)).
+    *   **Resolución de Deadlocks en dbt:** Cambio de materialización de los modelos Silver (`stg_ais_position`, `int_vessel_position_deltas`, `int_vessel_tracks`) de `view` a **`table`**, con `post-hooks` que recrean los índices de soporte (`(mmsi, position_ts)`, `(ingestion_row_id)`, `(track_id, position_ts)` y parcial sobre `is_speed_anomaly`). Esto eliminó los deadlocks de dbt bajo consultas concurrentes y dio planes de ejecución estables para los 8.1M de filas.
+    *   **Acoplamiento de Producción:** DAG 03 espera a DAG 02 con `ExternalTaskSensor` (`mode="reschedule"`), eliminando condiciones de carrera entre Silver y Gold; los build de Gold se ejecutan sin `--full-refresh` (swap atómico de tablas del adaptador dbt-postgres).
+*   **Métricas de Validación:**
+    *   **Volumen en producción:** 8,100,000 filas AIS diarias en `bronze.bronze_ais_position` + 3,804 puertos reales en `bronze.bronze_ports`.
+    *   **Latencia de ingesta:** carga Bronze del archivo diario completo en segundos (COPY masivo + `synchronous_commit=OFF`).
+    *   **Idempotencia verificada:** re-ejecución del DAG 01 ante el mismo archivo diario → `status=already_processed`, 0 filas duplicadas (validación por `source_url` + checksum SHA-256 en `metadata.ingestion_runs`).
+    *   **QG2 con datos reales:** 2,849 violaciones iniciales (0% de tasa de paso) → **threshold del 1%**: gate en verde evaluando el porcentaje global (`spatial_continuity + temporal_continuity`) sobre 8.1M de registros analizados.
+    *   **Estabilidad dbt:** 0 deadlocks tras el cambio a materialización `table` con post-hooks de índices en Silver.
 
 ---
 *Documento mantenido bajo el esquema: problema → alternativas → decisión → justificación → consecuencias.*
